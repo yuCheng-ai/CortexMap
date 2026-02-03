@@ -19,7 +19,7 @@ CortexMap 既是**机器可读写的 API 系统**，也是**人类可编辑的�
 
 目标用户包括：
 
-* **量化交易与金融研究团队 (Quant & Finance)**
+* 量化交易与金融研究团队 (Quant & Finance)
 * Agent 框架开发者（LangGraph、AutoGPT、CrewAI 等）
 * 企业 AI 自动化团队
 * 研究型 AGI 系统
