@@ -1,4 +1,5 @@
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::sqlite::{SqlitePoolOptions, SqliteConnectOptions};
+use sqlx::SqlitePool;
 use std::fs;
 use std::path::Path;
 
@@ -8,11 +9,14 @@ pub async fn init_db(app_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
     }
 
     let db_path = app_dir.join("cortex_map.db");
-    let db_url = format!("sqlite:{}", db_path.to_str().unwrap());
+    
+    let options = SqliteConnectOptions::new()
+        .filename(db_path)
+        .create_if_missing(true);
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(&db_url)
+        .connect_with(options)
         .await?;
 
     // Create tables

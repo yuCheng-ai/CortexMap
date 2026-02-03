@@ -2,8 +2,6 @@ pub mod models;
 pub mod db;
 pub mod server;
 
-use tauri::Manager;
-
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -14,9 +12,9 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
-            let handle = app.handle().clone();
-            let app_dir = handle.path().app_data_dir().expect("failed to get app data dir");
+        .setup(|_app| {
+            // Use local db directory for development
+            let app_dir = std::path::PathBuf::from("db");
             
             tauri::async_runtime::spawn(async move {
                 let pool = db::init_db(&app_dir).await.expect("Failed to initialize database");
