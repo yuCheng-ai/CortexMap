@@ -278,7 +278,7 @@ function App() {
         alignItems: 'center',
         gap: '12px'
       }}>
-        <CortexLogo size={40} />
+        <CortexLogo size={40} variant="slanted-mobius" />
         <div>
           <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 800, letterSpacing: '-0.05em', lineHeight: 1 }}>
             CORTEX<span style={{ color: '#3b82f6' }}>MAP</span>
