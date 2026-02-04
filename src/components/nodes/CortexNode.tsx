@@ -7,6 +7,7 @@ export type CortexNodeData = {
   type: 'logic' | 'memory' | 'evidence' | 'execution' | 'plan' | 'reflection';
   status: 'pending' | 'loading' | 'completed' | 'error' | 'active';
   description?: string;
+  promptOverride?: string;
 };
 
 export type CortexNodeProps = Node<CortexNodeData>;
@@ -110,7 +111,15 @@ export const CortexNode = memo(function CortexNode({ data, selected }: NodeProps
         data.description && (
           <div 
             className={data.status === 'loading' ? 'typing-cursor' : ''}
-            style={{ fontSize: '11px', opacity: 0.8, lineHeight: 1.4 }}
+            style={{ 
+              fontSize: '11px', 
+              opacity: 0.8, 
+              lineHeight: 1.4,
+              maxHeight: '150px',
+              overflowY: 'auto',
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none'
+            }}
           >
             {data.description}
           </div>

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { X, Clock, Hash, Activity, Sparkles } from 'lucide-react';
 import { CortexNodeData } from '../nodes/CortexNode';
 
@@ -6,10 +7,17 @@ interface NodeInspectorProps {
   nodeId: string | null;
   onClose: () => void;
   onExpand?: (nodeId: string) => void;
+  onUpdatePrompt?: (nodeId: string, prompt: string) => void;
 }
 
-export function NodeInspector({ data, nodeId, onClose, onExpand }: NodeInspectorProps) {
+export function NodeInspector({ data, nodeId, onClose, onExpand, onUpdatePrompt }: NodeInspectorProps) {
   if (!data || !nodeId) return null;
+
+  const [promptOverride, setPromptOverride] = useState(data.promptOverride || '');
+
+  useEffect(() => {
+    setPromptOverride(data.promptOverride || '');
+  }, [data.promptOverride, nodeId]);
 
   return (
     <div style={{
@@ -37,7 +45,6 @@ export function NodeInspector({ data, nodeId, onClose, onExpand }: NodeInspector
         }
       `}</style>
 
-      {/* Header */}
       <div style={{
         padding: '16px',
         borderBottom: '1px solid #475569',
@@ -58,10 +65,8 @@ export function NodeInspector({ data, nodeId, onClose, onExpand }: NodeInspector
         </button>
       </div>
 
-      {/* Content */}
       <div style={{ padding: '20px', overflowY: 'auto' }}>
         
-        {/* ID Badge */}
         <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ 
             fontSize: '10px', 
@@ -85,7 +90,6 @@ export function NodeInspector({ data, nodeId, onClose, onExpand }: NodeInspector
           </span>
         </div>
 
-        {/* Title */}
         <div style={{ marginBottom: '24px' }}>
           <label style={{ fontSize: '11px', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
             思维向量 / 标签
@@ -95,7 +99,6 @@ export function NodeInspector({ data, nodeId, onClose, onExpand }: NodeInspector
           </div>
         </div>
 
-        {/* Description / Content */}
         <div style={{ marginBottom: '24px' }}>
           <label style={{ fontSize: '11px', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
             上下文与记忆
@@ -114,7 +117,30 @@ export function NodeInspector({ data, nodeId, onClose, onExpand }: NodeInspector
           </div>
         </div>
 
-        {/* Metadata Grid */}
+        <div style={{ marginBottom: '24px' }}>
+          <label style={{ fontSize: '11px', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
+            Prompt 编辑区
+          </label>
+          <textarea
+            value={promptOverride}
+            onChange={(e) => setPromptOverride(e.target.value)}
+            placeholder="可在此补充该节点的推理偏好、上下文约束或格式要求"
+            style={{
+              width: '100%',
+              minHeight: '120px',
+              background: '#0f172a',
+              border: '1px solid #334155',
+              borderRadius: '8px',
+              padding: '10px',
+              fontSize: '12px',
+              color: '#cbd5e1',
+              resize: 'vertical',
+              outline: 'none',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <div style={{ background: '#1e293b', padding: '10px', borderRadius: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', color: '#94a3b8' }}>
@@ -134,7 +160,6 @@ export function NodeInspector({ data, nodeId, onClose, onExpand }: NodeInspector
 
       </div>
 
-      {/* Footer Actions */}
       <div style={{ padding: '16px', borderTop: '1px solid #475569', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <button 
           onClick={() => onExpand && onExpand(nodeId)}
@@ -167,8 +192,10 @@ export function NodeInspector({ data, nodeId, onClose, onExpand }: NodeInspector
             fontSize: '12px',
             fontWeight: 600,
             cursor: 'pointer'
-          }}>
-            编辑上下文
+          }}
+          onClick={() => onUpdatePrompt && onUpdatePrompt(nodeId, promptOverride)}
+          >
+            保存 Prompt
           </button>
           <button style={{
             flex: 1,
@@ -180,8 +207,13 @@ export function NodeInspector({ data, nodeId, onClose, onExpand }: NodeInspector
             fontSize: '12px',
             fontWeight: 600,
             cursor: 'pointer'
-          }}>
-            原始 JSON
+          }}
+          onClick={() => {
+            setPromptOverride('');
+            if (onUpdatePrompt) onUpdatePrompt(nodeId, '');
+          }}
+          >
+            清空 Prompt
           </button>
         </div>
       </div>
