@@ -18,8 +18,9 @@ import { CortexNode, CortexNodeData } from './components/nodes/CortexNode';
 import { NodeInspector } from './components/ui/NodeInspector';
 import { TimeTravelSlider } from './components/TimeTravelSlider';
 import { CortexLogo } from './components/ui/CortexLogo';
-import { Plus, GitCommit, RefreshCw, Terminal, Copy } from 'lucide-react';
+import { Plus, GitCommit, RefreshCw, Terminal, Copy, Brain, Cpu } from 'lucide-react';
 import { apiClient } from './api/client';
+import { ollamaClient } from './api/ollama';
 import { generateAIContext } from './utils/aiContext';
 
 const initialNodes: Node<CortexNodeData>[] = [
@@ -81,6 +82,10 @@ function App() {
   const [selectedNode, setSelectedNode] = useState<Node<CortexNodeData> | null>(null);
   const [isCommitting, setIsCommitting] = useState(false);
   const [backendStatus, setBackendStatus] = useState<'connecting' | 'connected' | 'offline'>('connecting');
+  const [isReasoning, setIsReasoning] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState<'connected' | 'offline'>('offline');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState(import.meta.env.VITE_OLLAMA_MODEL || 'llama3');
 
   // Time Travel State
   const [viewMode, setViewMode] = useState<'live' | 'preview'>('live');
@@ -97,7 +102,7 @@ function App() {
   }, [nodes, edges]);
 
   useEffect(() => {
-    // Check backend connection on mount
+    // Check backend and ollama connection on mount
     const init = async () => {
       const isAlive = await apiClient.isBackendAlive();
       if (isAlive) {
@@ -109,11 +114,35 @@ function App() {
         }
       } else {
         setBackendStatus('offline');
-        // If offline, try to load from local cache
         const localData = await apiClient.getState();
         if (localData && localData.nodes.length > 0) {
           setNodes(localData.nodes);
           setEdges(localData.edges);
+        }
+      }
+
+      const ollamaAlive = await ollamaClient.isAlive();
+      setOllamaStatus(ollamaAlive ? 'connected' : 'offline');
+      
+      if (ollamaAlive) {
+        const models = await ollamaClient.listModels();
+        if (models.length > 0) {
+          const modelNames = models.map(m => m.name);
+          setAvailableModels(modelNames);
+          
+          // Priority: 
+          // 1. Environment variable model (if valid)
+          // 2. Currently selected model (if valid)
+          // 3. First available model
+          const envModel = import.meta.env.VITE_OLLAMA_MODEL;
+          
+          if (envModel && modelNames.some(m => m.includes(envModel))) {
+             // If env model is found (even partial match), stick with it
+             setSelectedModel(envModel);
+          } else if (!modelNames.includes(selectedModel)) {
+            // If current selection is invalid, pick the first one
+            setSelectedModel(modelNames[0]);
+          }
         }
       }
     };
@@ -184,58 +213,169 @@ function App() {
     setNodes((nds) => nds.concat(newNode));
   };
 
-  const handleExpand = (nodeId: string) => {
-    // Mock AI Generation Logic
+  const handleAIReasoning = async (nodeId: string) => {
     const parentNode = nodes.find(n => n.id === nodeId);
     if (!parentNode) return;
 
-    const newId = (nodes.length + 1).toString();
-    const offset = Math.random() * 100 + 50;
+    setIsReasoning(true);
+    // Pass nodeId to generate relevant context only (Pruning)
+    const context = generateAIContext(nodes, edges, nodeId);
+    const thinkingId = `thinking-${Date.now()}`;
     
-    let newType: 'plan' | 'memory' | 'evidence' | 'execution' | 'logic' | 'reflection' = 'logic';
-    let newLabel = 'AI 联想节点';
-    let newDesc = 'AI 基于上下文生成的扩展思维。';
-
-    // Simple heuristic for "AI" behavior
-    if (parentNode.data.type === 'plan') {
-      newType = 'execution';
-      newLabel = '执行步骤';
-      newDesc = '为了实现该目标，建议采取的具体行动。';
-    } else if (parentNode.data.type === 'execution') {
-      newType = 'evidence';
-      newLabel = '执行结果/证据';
-      newDesc = '执行该步骤后产生的观察结果。';
-    } else if (parentNode.data.type === 'memory') {
-      newType = 'reflection';
-      newLabel = '记忆反思';
-      newDesc = '对该段记忆的深度分析与洞察。';
-    }
-
-    const newNode: Node<CortexNodeData> = {
-      id: newId,
+    // Create a "Thinking" node
+    const thinkingNode: Node<CortexNodeData> = {
+      id: thinkingId,
       type: 'cortex',
       position: { 
-        x: parentNode.position.x + offset, 
-        y: parentNode.position.y + offset + 100 
+        x: parentNode.position.x + 250, 
+        y: parentNode.position.y 
       },
       data: { 
-        label: newLabel,
-        type: newType,
-        status: 'pending',
-        description: newDesc
+        label: '🤔 AI 正在思考...',
+        type: 'reflection',
+        status: 'loading',
+        description: ''
       },
     };
 
-    const newEdge: Edge = {
-      id: `e${nodeId}-${newId}`,
+    const thinkingEdge: Edge = {
+      id: `e-${nodeId}-${thinkingId}`,
       source: nodeId,
-      target: newId,
+      target: thinkingId,
       animated: true,
-      label: 'AI 推演'
+      label: '推理中'
     };
 
-    setNodes((nds) => nds.concat(newNode));
-    setEdges((eds) => eds.concat(newEdge));
+    setNodes(nds => nds.concat(thinkingNode));
+    setEdges(eds => eds.concat(thinkingEdge));
+
+    try {
+      const prompt = `你是一个辅助思考的 Agent。当前系统的思维状态如下：
+${context}
+
+请针对节点 "${parentNode.data.label}" 进行深入推理。
+你可以生成多个新的节点来扩展思维。
+
+请按以下格式输出：
+1. 首先进行自然语言的思考分析。
+2. 然后，使用 JSON 格式定义要添加的新节点和连线，包裹在 <brainstorm> 标签中。
+
+格式示例：
+<brainstorm>
+{
+  "new_nodes": [
+    { "label": "风险分析", "type": "logic", "description": "分析市场波动的潜在风险..." }
+  ],
+  "new_edges": [
+    { "from": "parent_node_id", "to": "new_node_index_0", "label": "导致" }
+  ]
+}
+</brainstorm>
+
+注意：
+- 节点 type 必须是: plan, memory, evidence, execution, logic, reflection 之一。
+- new_edges 中的 "to" 字段可以使用 "new_node_index_X" 来引用 new_nodes 数组中的第 X 个节点（从 0 开始）。
+- 当前节点 ID 为 "${parentNode.id}"。
+
+请开始思考：`;
+
+      let fullResponse = '';
+      await ollamaClient.chat(selectedModel, [{ role: 'user', content: prompt }], (chunk) => {
+        fullResponse += chunk;
+        // Update thinking node description in real-time
+        setNodes(nds => nds.map(n => 
+          n.id === thinkingId 
+            ? { ...n, data: { ...n.data, description: fullResponse } }
+            : n
+        ));
+      });
+
+      // Parse <brainstorm> block
+      const brainstormMatch = fullResponse.match(/<brainstorm>([\s\S]*?)<\/brainstorm>/);
+      let newNodesData: any[] = [];
+      let newEdgesData: any[] = [];
+
+      if (brainstormMatch) {
+        try {
+          const jsonStr = brainstormMatch[1];
+          const parsed = JSON.parse(jsonStr);
+          if (parsed.new_nodes) newNodesData = parsed.new_nodes;
+          if (parsed.new_edges) newEdgesData = parsed.new_edges;
+        } catch (e) {
+          console.error("Failed to parse brainstorm JSON", e);
+        }
+      }
+
+      const timestamp = Date.now();
+      const createdNodes: Node<CortexNodeData>[] = newNodesData.map((n, index) => ({
+        id: `node-${timestamp}-${index}`,
+        type: 'cortex',
+        position: { 
+          x: parentNode.position.x + (Math.random() * 600 - 300), 
+          y: parentNode.position.y + 300 + (Math.random() * 100)
+        },
+        data: {
+          label: n.label,
+          type: n.type || 'logic',
+          status: 'pending',
+          description: n.description
+        }
+      }));
+
+      const createdEdges: Edge[] = newEdgesData.map((e, index) => {
+        let source = e.from === 'parent_node_id' ? nodeId : e.from;
+        let target = e.to;
+        
+        if (target.startsWith('new_node_index_')) {
+          const idx = parseInt(target.split('_').pop() || '0');
+          target = `node-${timestamp}-${idx}`;
+        }
+        
+        return {
+          id: `edge-${timestamp}-${index}`,
+          source,
+          target,
+          label: e.label,
+          animated: true,
+          style: { stroke: '#94a3b8', strokeWidth: 2 }
+        };
+      });
+
+      // After finished, finalize the node and add new ones
+      setNodes(nds => {
+        const updatedThinkingNode = nds.map(n => 
+          n.id === thinkingId 
+            ? { 
+                ...n, 
+                data: { 
+                  ...n.data, 
+                  label: '💡 AI 思考过程',
+                  status: 'completed' as const
+                } 
+              }
+            : n
+        );
+        return [...updatedThinkingNode, ...createdNodes];
+      });
+
+      if (createdEdges.length > 0) {
+        setEdges(eds => [...eds, ...createdEdges]);
+      }
+
+    } catch (error) {
+      console.error('Reasoning failed:', error);
+      setNodes(nds => nds.map(n => 
+        n.id === thinkingId 
+          ? { ...n, data: { ...n.data, label: '❌ 推理失败', status: 'pending' } }
+          : n
+      ));
+    } finally {
+      setIsReasoning(false);
+    }
+  };
+
+  const handleExpand = (nodeId: string) => {
+    handleAIReasoning(nodeId);
   };
 
   const handleCommit = async () => {
@@ -440,9 +580,36 @@ function App() {
               • 数据存储: <span style={{ color: backendStatus === 'connected' ? '#10b981' : '#f59e0b' }}>
                 {backendStatus === 'connected' ? 'SQLite (已连接)' : '浏览器缓存 (运行中)'}
               </span><br />
+              • Ollama: <span style={{ color: ollamaStatus === 'connected' ? '#10b981' : '#f43f5e' }}>
+                {ollamaStatus === 'connected' ? '运行中' : '离线'}
+              </span><br />
               • 活跃记忆节点: {nodes.filter(n => n.data?.type === 'memory').length}
             </div>
 
+            <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Brain size={14} style={{ color: '#a78bfa' }} />
+              <select 
+                value={selectedModel} 
+                onChange={(e) => setSelectedModel(e.target.value)}
+                style={{ 
+                  background: 'transparent', 
+                  border: 'none', 
+                  color: '#cbd5e1', 
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  flex: 1
+                }}
+              >
+                {availableModels.length > 0 ? (
+                  availableModels.map(model => (
+                    <option key={model} value={model}>{model}</option>
+                  ))
+                ) : (
+                  <option value="loading">Loading models...</option>
+                )}
+              </select>
+            </div>
           </div>
         </Panel>
 

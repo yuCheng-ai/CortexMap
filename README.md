@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/logo.svg" width="120" alt="CortexMap Logo">
+</p>
+
 # **CortexMap v0.2 — 产品规范**
 
 > **Agent 原生记忆与状态层（Native Memory & State Layer for AI Agents）**

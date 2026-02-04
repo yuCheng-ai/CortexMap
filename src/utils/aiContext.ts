@@ -11,9 +11,56 @@ interface ProtocolSection {
   items: string[];
 }
 
-export const generateAIContext = (nodes: Node<CortexNodeData>[], edges: Edge[]): string => {
+export const generateAIContext = (
+  allNodes: Node<CortexNodeData>[], 
+  edges: Edge[],
+  focusNodeId?: string
+): string => {
   const timestamp = new Date().toISOString();
   
+  // Context Pruning Logic
+  let nodes = allNodes;
+  
+  if (focusNodeId) {
+    const focusNode = allNodes.find(n => n.id === focusNodeId);
+    if (focusNode) {
+      // Always include global plans
+      const planNodes = allNodes.filter(n => n.data.type === 'plan');
+      
+      // Find 1-hop neighbors
+      const connectedEdgeIds = new Set<string>();
+      const neighborIds = new Set<string>();
+      neighborIds.add(focusNodeId);
+
+      edges.forEach(edge => {
+        if (edge.source === focusNodeId) {
+          neighborIds.add(edge.target);
+          connectedEdgeIds.add(edge.id);
+        }
+        if (edge.target === focusNodeId) {
+          neighborIds.add(edge.source);
+          connectedEdgeIds.add(edge.id);
+        }
+      });
+
+      // Find 2-hop upstream (ancestors) for context
+      const ancestorsIds = new Set<string>();
+      edges.forEach(edge => {
+        if (neighborIds.has(edge.target) && !neighborIds.has(edge.source)) {
+             // If target is a neighbor (or focus), source is an ancestor
+             ancestorsIds.add(edge.source);
+        }
+      });
+      
+      const relevantIds = new Set([...neighborIds, ...ancestorsIds]);
+      
+      // Filter nodes: Plans + Relevant (Focus/Neighbors/Ancestors)
+      nodes = allNodes.filter(n => 
+        n.data.type === 'plan' || relevantIds.has(n.id)
+      );
+    }
+  }
+
   // Group nodes by role
   const groups: Record<string, Node<CortexNodeData>[]> = {
     plan: [],

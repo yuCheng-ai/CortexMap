@@ -97,10 +97,24 @@ export const CortexNode = memo(function CortexNode({ data, selected }: NodeProps
         {data.label}
       </div>
 
-      {data.description && (
-        <div style={{ fontSize: '11px', opacity: 0.8, lineHeight: 1.4 }}>
-          {data.description}
+      {data.status === 'loading' && !data.description ? (
+        <div style={{ padding: '8px 0', display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.8 }}>
+          <div className="wave-container">
+            <span className="wave-bar"></span>
+            <span className="wave-bar"></span>
+            <span className="wave-bar"></span>
+          </div>
+          <span style={{ fontSize: '11px' }}>Thinking...</span>
         </div>
+      ) : (
+        data.description && (
+          <div 
+            className={data.status === 'loading' ? 'typing-cursor' : ''}
+            style={{ fontSize: '11px', opacity: 0.8, lineHeight: 1.4 }}
+          >
+            {data.description}
+          </div>
+        )
       )}
 
       <Handle type="source" position={Position.Bottom} style={{ background: 'rgba(255,255,255,0.5)', border: 'none' }} />
