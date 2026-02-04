@@ -2,100 +2,101 @@
   <img src="public/logo.svg" width="120" alt="CortexMap Logo">
 </p>
 
-# **CortexMap v0.2 — 产品规范**
+# **CortexMap v0.2 — Product Specification**
 
-> **Agent 原生记忆与状态层（Native Memory & State Layer for AI Agents）**
-> —— 可读写、可回滚、可审计、可协作的结构化“外脑系统”。
+[中文版 (Chinese Version)](./README_zh.md)
 
----
-
-## **1. 产品定位**
-
-**CortexMap** 是一款**本地优先（Local-first）**的桌面端应用，定位为 AGI/Agent 时代的**标准化外部大脑基础设施**。所有数据均存储在用户本地 SQLite 数据库中，坚决不强制 SaaS 化。
-
-它为所有 AI Agent 框架提供统一的：
-
-* **长期记忆层（Memory Layer）**
-* **任务状态层（State Layer）**
-* **可视化协同层（Human-in-the-loop Layer）**
-
-CortexMap 既是**机器可读写的 API 系统**，也是**人类可编辑的可视化画布**，作为多 Agent 协作的 **Single Source of Truth（单一事实源）**。
-
-目标用户包括：
-
-* 量化交易与金融研究团队 (Quant & Finance)
-* Agent 框架开发者（LangGraph、AutoGPT、CrewAI 等）
-* 企业 AI 自动化团队
-* 研究型 AGI 系统
-* RPA + AI 混合系统
+> **Native Memory & State Layer for AI Agents**
+> — A readable, writable, rollable, and auditable structured "External Brain System."
 
 ---
 
-## **2. 核心价值主张**
+## **1. Positioning**
 
-CortexMap 解决三大行业级痛点：
+**CortexMap** is a **Local-first** desktop application designed as the **standardized external brain infrastructure** for the AGI/Agent era. All data is stored in a local SQLite database, strictly avoiding forced SaaS models.
 
-1. **上下文爆炸（Context Overload）**
-   * 不再依赖超长 Prompt，Agent 只按需加载**相关子树**。
-2. **Agent 失忆（Lack of Persistence）**
-   * 任务状态可长期存储，可跨对话、跨会话、跨 Agent 复用。
-3. **AI 不可审计（Black-box Behavior）**
-   * 每一步都有证据链，可回滚、可复现、可追溯。
+It provides a unified layer for all AI Agent frameworks:
 
----
+* **Long-term Memory Layer**
+* **Task State Layer**
+* **Human-in-the-loop Visualization Layer**
 
-## **3. 产品核心特性**
+CortexMap serves as both a **machine-readable API system** and a **human-editable visualization canvas**, acting as the **Single Source of Truth** for multi-agent collaboration.
 
-### **3.1 API-First：按需上下文**
-CortexMap 提供精细化子树检索，Agent 只获取“需要的记忆切片”，避免 token 溢出。支持按任务、主题、时间线或依赖关系加载。
-
-### **3.2 Git-like 增量状态（Batch Patch）**
-采用 **Git 风格状态管理**：每次 Agent 执行即为一次增量 patch。支持 `diff`、`merge`、`rollback` 和 `snapshot`。这使 CortexMap 成为 **“Agent 的 Git 仓库”**。
-
-### **3.3 证据挂载（Auditable AI）**
-每个关键节点可挂载执行日志、截图、API 响应、Commit ID 和运行 Trace，形成**完整审计链**。
-
-### **3.4 人类协同画布（Control Tower UI）**
-可视化 UI 作为 **Agent Control Tower**，人类可以直接修改 AI 计划、插入任务节点、强制回滚或标注路径，实现真正的 **Human-in-the-loop**。
+Target users include:
+* Quant & Financial Research teams
+* Agent framework developers (LangGraph, AutoGPT, CrewAI, etc.)
+* Enterprise AI automation teams
+* Research-oriented AGI systems
+* Hybrid RPA + AI systems
 
 ---
 
-## **4. 行业应用场景：金融与量化**
+## **2. Core Value Propositions**
 
-CortexMap 的本地化与版本化设计，天然适配金融决策场景：
+CortexMap addresses three major industry pain points:
 
-### **4.1 投资决策审计 (Investment Audit)**
-记录 Agent 决策时的所有前置条件（如实时行情、研报摘要、风险偏好）。提供**秒级回溯**，通过 `commit` 链条还原决策瞬间的完整上下文。
-
-### **4.2 量化策略状态管理 (Quant State Management)**
-利用 **JSON Patch** 记录复杂量化策略的中间状态。即使策略进程意外崩溃，重启后可从最后一个 Commit 瞬间恢复，实现“断点续传”。
-
-### **4.3 隐私与合规 (Privacy & Compliance)**
-交易数据、敏感客户信息完全保留在本地 SQLite 中，满足金融行业严苛的数据隐私与合规要求。
+1. **Context Overload**
+   * No more reliance on ultra-long prompts; Agents only load **relevant subtrees** on demand.
+2. **Agent Amnesia (Lack of Persistence)**
+   * Task states are stored long-term and can be reused across dialogues, sessions, and different Agents.
+3. **AI Opacity (Black-box Behavior)**
+   * Every step has a chain of evidence, allowing for rollback, reproduction, and traceability.
 
 ---
 
-## **5. 核心架构设计**
+## **3. Key Features**
 
-CortexMap 采用“三位一体”的本地化架构：
+### **3.1 API-First: Context-on-Demand**
+CortexMap provides granular subtree retrieval, ensuring Agents only receive the "memory slices" they need, preventing token overflow. Supports loading by task, topic, timeline, or dependency.
 
-### **5.1 组件构成**
-1.  **Desktop UI (Canvas)**: 基于 **Tauri + React/Svelte**。实时展示 Agent 的记忆拓扑和任务状态。
-2.  **Embedded Local Server**: 随桌面应用启动的轻量级 **Rust HTTP Server**（默认监听 `127.0.0.1:1357`）。
+### **3.2 Git-like Incremental State (Batch Patch)**
+Utilizes **Git-style state management**: every Agent execution is treated as an incremental patch. Supports `diff`, `merge`, `rollback`, and `snapshot`. This makes CortexMap the **"Git Repository for Agents."**
+
+### **3.3 Evidence Mounting (Auditable AI)**
+Each critical node can mount execution logs, screenshots, API responses, Commit IDs, and execution traces, forming a **complete audit chain**.
+
+### **3.4 Control Tower UI (Human-in-the-loop)**
+The visual UI acts as an **Agent Control Tower**, where humans can directly modify AI plans, insert task nodes, force rollbacks, or annotate paths, achieving true **Human-in-the-loop** collaboration.
+
+---
+
+## **4. Industry Use Case: Finance & Quant**
+
+CortexMap's localized and versioned design is naturally suited for financial decision-making:
+
+### **4.1 Investment Decision Audit**
+Records all preconditions during Agent decision-making (e.g., real-time market data, research summaries, risk appetite). Provides **second-level backtracking** to restore the full context of a decision moment via the `commit` chain.
+
+### **4.2 Quant Strategy State Management**
+Uses **JSON Patch** to record intermediate states of complex quant strategies. Even if a strategy process crashes, it can recover instantly from the last Commit, enabling "breakpoint resume."
+
+### **4.3 Privacy & Compliance**
+Trading data and sensitive customer information remain entirely within the local SQLite database, meeting the stringent data privacy and compliance requirements of the financial industry.
+
+---
+
+## **5. Core Architecture**
+
+CortexMap employs a "Trinity" localization architecture:
+
+### **5.1 Components**
+1.  **Desktop UI (Canvas)**: Built with **Tauri + React/Svelte**. Displays Agent memory topology and task states in real-time.
+2.  **Embedded Local Server**: A lightweight **Rust HTTP Server** that starts with the desktop app (defaulting to `127.0.0.1:1357`).
 3.  **Local Storage (SQLite)**: 
-    *   **特性**: 支持 ACID 事务、JSON1 扩展、全文搜索 (FTS5)。
-    *   **可靠性**: 默认开启 **WAL (Write-Ahead Logging)** 模式，支持高并发读写。
+    *   **Features**: Supports ACID transactions, JSON1 extension, and Full-Text Search (FTS5).
+    *   **Reliability**: **WAL (Write-Ahead Logging)** mode enabled by default for high-concurrency read/write operations.
 
-### **5.2 数据模型 (Git-like Schema)**
-*   **`nodes`**: 存储节点当前快照。
-*   **`edges`**: 存储节点间的关系。
-*   **`commits`**: 记录每一次变更的元数据。
-*   **`patches`**: 存储 **RFC 6902 (JSON Patch)** 格式的增量数据。
-*   **`snapshots`**: 定期存储全量快照，加速加载。
+### **5.2 Data Model (Git-like Schema)**
+*   **`nodes`**: Stores the current snapshot of nodes.
+*   **`edges`**: Stores relationships between nodes.
+*   **`commits`**: Records metadata for every change.
+*   **`patches`**: Stores incremental data in **RFC 6902 (JSON Patch)** format.
+*   **`snapshots`**: Periodically stores full snapshots to accelerate loading.
 
 ---
 
-## **6. 核心数据模型 (v0.2)**
+## **6. Core Data Model (v0.2)**
 
 ```ts
 interface CortexNode {
@@ -108,7 +109,7 @@ interface CortexNode {
     run_id?: string;
     evidence_url?: string;
     raw_data_digest?: string;
-    reasoning_trace?: string;   // AI 选择此节点的理由
+    reasoning_trace?: string;   // Reasoning for AI choosing this node
   };
   children: string[];
 }
@@ -116,15 +117,15 @@ interface CortexNode {
 
 ---
 
-## **7. 开发者集成**
+## **7. Developer Integration**
 
-### **7.1 集成流程**
-1.  **初始化**: Agent 调用 `GET /status` 检查本地 CortexMap 是否在线。
-2.  **读取上下文**: Agent 发送 `POST /query` 获取相关的“记忆子树”。
-3.  **提交变更**: Agent 发送 `POST /commit`，携带 `patch` 数据更新外脑。
-4.  **实时渲染**: 变更通过 **Tauri Event Bridge** 实时推送到前端 UI。
+### **7.1 Integration Flow**
+1.  **Initialization**: Agent calls `GET /status` to check if local CortexMap is online.
+2.  **Read Context**: Agent sends `POST /query` to retrieve the relevant "memory subtree."
+3.  **Commit Changes**: Agent sends `POST /commit` with `patch` data to update the external brain.
+4.  **Real-time Rendering**: Changes are pushed to the UI via the **Tauri Event Bridge**.
 
-### **7.2 Python 集成示例**
+### **7.2 Python Integration Example**
 ```python
 import requests
 
@@ -141,16 +142,22 @@ def commit_to_cortex(node_id, patch_data):
 
 ---
 
-## **8. 里程碑计划（v0.2）**
+## **8. Roadmap (v0.2)**
 
-*   **Week 1 — 最小可运行内核**: 实现 `create_map`, `batch_patch`, `create_snapshot` 等 Headless 接口。
-*   **Week 2 — 版本系统**: 完善 `snapshot`, `diff`, `rollback` 及冲突检测，交付 Git-like 引擎。
-*   **Week 3 — 闭环集成**: 实现 Agent 执行与 CortexMap 自动回写的双向闭环。
+*   **Week 1 — MVP Core**: Implement headless interfaces like `create_map`, `batch_patch`, `create_snapshot`.
+*   **Week 2 — Versioning System**: Finalize `snapshot`, `diff`, `rollback`, and conflict detection; deliver Git-like engine.
+*   **Week 3 — Closed-loop Integration**: Achieve two-way integration between Agent execution and CortexMap auto-updates.
 
 ---
 
-## **9. 长期愿景**
+## **9. Long-term Vision**
 
-CortexMap 的最终目标是成为：
+CortexMap aims to become:
 
-> **AGI 时代的“外脑操作系统（External Brain OS）”**
+> **The "External Brain OS" for the AGI Era.**
+
+---
+
+## **License**
+
+This project is licensed under the [MIT License](./LICENSE).
