@@ -1,4 +1,4 @@
-import React from 'react';
+// No imports needed
 
 type LogoVariant = 'slanted-mobius' | 'mobius-flow' | 'interlocked-links' | 'symmetric-orbit' | 'rotated-refined-arcs' | 'refined-arcs' | 'staggered-arcs' | 'geometric-knot' | 'infinity-loop' | 'loop-symmetry' | 'pure-flat' | 'minimal-arcs';
 

@@ -32,7 +32,35 @@ Target users include:
 
 ---
 
-## **2. Core Value Propositions**
+## **2. Strategic Blueprint: Universal Cognitive Topology**
+
+The core essence of CortexMap is to build a **"Human-AI Symbiotic Structured Cognitive Operating System."** It is more than just a tool; it is a fundamental framework for "semantic alignment" between high-level human abstract thinking and distributed AI computing capabilities.
+
+### **2.1 The Four Pillars of Cognition**
+In CortexMap, mind map nodes are abstracted into four core dimensions, collectively forming a complete cognitive topology:
+*   **Ontology**: Defines "What it is." Constructs knowledge graphs, value standards, and core conceptual systems of a domain.
+*   **Logic**: Defines "How to do it." Captures algorithmic logic, decision trees, causal inference, and methodological paths.
+*   **State**: Defines "Where we are." Records dynamic task progress, temporal evolution, narrative arcs, and execution traces.
+*   **Evidence**: Defines "On what basis." Mounts underlying data, factual evidence, execution logs, and audit chains.
+
+### **2.2 Decision Layer: Semantic Modeling & Value Alignment**
+*   **Scenario**: Human leaders collaborate with Master AI to transform "non-standard intuition" into "standardized topology."
+*   **Core Value**:
+    *   **High-level Abstraction**: Humans define the ontology and logical boundaries, ensuring AI operates within the correct cognitive framework.
+    *   **Structured Intervention**: Humans achieve "lossless correction" of AI's underlying cognitive logic by directly editing the topological structure.
+
+### **2.3 Execution Layer: Distributed Cognition & Feedback**
+*   **Scenario**: Multiple Worker AIs use the mind map as a "shared context" and "operational foundation."
+*   **Core Value**:
+    *   **Cognitive Decoupling**: Worker AIs don't need to understand the global intent; they execute local tasks based on the current node's semantics.
+    *   **Automatic Filling & Evolution**: AI execution results are automatically transformed into new nodes or evidence, driving the self-iteration and refinement of the cognitive topology.
+
+### **2.3 Core Link: Single Source of Truth**
+The mind map serves as the **Single Source of Truth** for all participants (both humans and AI). It resolves issues like state synchronization, context overflow, and auditability in multi-agent collaboration.
+
+---
+
+## **3. Core Value Propositions**
 
 CortexMap addresses three major industry pain points:
 

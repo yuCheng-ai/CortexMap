@@ -82,7 +82,7 @@ function App() {
   const [selectedNode, setSelectedNode] = useState<Node<CortexNodeData> | null>(null);
   const [isCommitting, setIsCommitting] = useState(false);
   const [backendStatus, setBackendStatus] = useState<'connecting' | 'connected' | 'offline'>('connecting');
-  const [isReasoning, setIsReasoning] = useState(false);
+  const [, setIsReasoning] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<'connected' | 'offline'>('offline');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState(import.meta.env.VITE_OLLAMA_MODEL || 'llama3');
@@ -440,11 +440,58 @@ ${context}
         onPaneClick={onPaneClick}
         fitView
         fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+        proOptions={{ hideAttribution: true }}
       >
         <Background color="#1e293b" gap={25} size={1} />
-        <Controls style={{ background: '#1e293b', border: '1px solid #334155', fill: '#fff' }} />
         
-        <Panel position="top-right" style={{ display: 'flex', gap: '8px' }}>
+        <Panel position="top-right" style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '12px' }}>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px', 
+            background: '#1e293b', 
+            border: '1px solid #334155', 
+            borderRadius: '8px',
+            padding: '4px 12px',
+            height: '34px'
+          }}>
+            <Brain size={14} style={{ color: '#a78bfa' }} />
+            <select 
+              value={selectedModel} 
+              onChange={(e) => setSelectedModel(e.target.value)}
+              style={{ 
+                background: 'transparent', 
+                border: 'none', 
+                color: '#cbd5e1', 
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+                minWidth: '120px'
+              }}
+            >
+              {availableModels.length > 0 ? (
+                availableModels.map(model => (
+                  <option key={model} value={model}>{model}</option>
+                ))
+              ) : (
+                <option value="loading">Loading...</option>
+              )}
+            </select>
+          </div>
+
+          <div style={{ width: '1px', height: '24px', background: '#334155' }} />
+
+          <Controls 
+            showInteractive={false}
+            style={{ 
+              position: 'static', 
+              margin: 0
+            }} 
+          />
+
+          <div style={{ width: '1px', height: '24px', background: '#334155' }} />
+
           <button 
             onClick={addNode}
             style={{
@@ -459,7 +506,8 @@ ${context}
               gap: '6px',
               fontSize: '12px',
               fontWeight: 600,
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
+              height: '34px'
             }}
           >
             <Plus size={14} /> 新建节点
@@ -479,7 +527,8 @@ ${context}
               fontSize: '12px',
               fontWeight: 600,
               transition: 'all 0.3s',
-              transform: isCommitting ? 'scale(0.95)' : 'scale(1)'
+              transform: isCommitting ? 'scale(0.95)' : 'scale(1)',
+              height: '34px'
             }}
           >
             {isCommitting ? (
@@ -494,7 +543,7 @@ ${context}
           </button>
         </Panel>
 
-        <Panel position="bottom-right" style={{ pointerEvents: 'none' }}>
+        <Panel position="bottom-right" style={{ pointerEvents: 'none', margin: '12px' }}>
            <div style={{ 
              width: '300px',
              height: '200px',
@@ -559,56 +608,26 @@ ${context}
            </div>
         </Panel>
 
-        <Panel position="bottom-left">
+        <Panel position="bottom-left" style={{ margin: '0 0 10px 10px' }}>
           <div style={{ 
-            padding: '12px', 
-            backgroundColor: 'rgba(30, 41, 59, 0.8)', 
+            padding: '10px 12px', 
+            backgroundColor: 'rgba(15, 23, 42, 0.6)', 
             backdropFilter: 'blur(8px)',
             border: '1px solid #334155', 
-            borderRadius: '12px',
+            borderRadius: '10px',
             color: 'white',
-            fontSize: '11px',
-            maxWidth: '240px'
+            fontSize: '10px',
+            width: '180px'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', color: '#3b82f6', fontWeight: 700 }}>
-              <RefreshCw size={12} /> 系统状态
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', color: '#94a3b8', fontWeight: 700, fontSize: '11px' }}>
+              <Cpu size={12} /> 核心状态
             </div>
-            <div style={{ opacity: 0.8, lineHeight: 1.5 }}>
-              • Rust 后端: <span style={{ color: backendStatus === 'connected' ? '#10b981' : backendStatus === 'connecting' ? '#f59e0b' : '#94a3b8' }}>
-                {backendStatus === 'connected' ? '运行中' : backendStatus === 'connecting' ? '连接中...' : '离线 (本地模式)'}
-              </span><br />
-              • 数据存储: <span style={{ color: backendStatus === 'connected' ? '#10b981' : '#f59e0b' }}>
-                {backendStatus === 'connected' ? 'SQLite (已连接)' : '浏览器缓存 (运行中)'}
-              </span><br />
-              • Ollama: <span style={{ color: ollamaStatus === 'connected' ? '#10b981' : '#f43f5e' }}>
-                {ollamaStatus === 'connected' ? '运行中' : '离线'}
-              </span><br />
-              • 活跃记忆节点: {nodes.filter(n => n.data?.type === 'memory').length}
-            </div>
-
-            <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Brain size={14} style={{ color: '#a78bfa' }} />
-              <select 
-                value={selectedModel} 
-                onChange={(e) => setSelectedModel(e.target.value)}
-                style={{ 
-                  background: 'transparent', 
-                  border: 'none', 
-                  color: '#cbd5e1', 
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  outline: 'none',
-                  flex: 1
-                }}
-              >
-                {availableModels.length > 0 ? (
-                  availableModels.map(model => (
-                    <option key={model} value={model}>{model}</option>
-                  ))
-                ) : (
-                  <option value="loading">Loading models...</option>
-                )}
-              </select>
+            <div style={{ opacity: 0.7, lineHeight: 1.6 }}>
+              • 后端: <span style={{ color: backendStatus === 'connected' ? '#10b981' : '#f59e0b' }}>{backendStatus === 'connected' ? '在线' : '本地'}</span>
+              <br />
+              • 存储: <span style={{ color: backendStatus === 'connected' ? '#10b981' : '#f59e0b' }}>{backendStatus === 'connected' ? 'SQLite' : 'Cache'}</span>
+              <br />
+              • 模型: <span style={{ color: ollamaStatus === 'connected' ? '#10b981' : '#f43f5e' }}>{ollamaStatus === 'connected' ? 'Ollama OK' : 'Ollama 离线'}</span>
             </div>
           </div>
         </Panel>

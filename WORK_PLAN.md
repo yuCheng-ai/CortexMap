@@ -28,11 +28,14 @@ CortexMap 采用 **Tauri + React + Rust** 架构，旨在创建一个完全隐�
   - 目标：让用户成为“思维的审阅者”。
   - 细节：在 [NodeInspector.tsx](src/components/ui/NodeInspector.tsx) 中增加 `Prompt 编辑区`，用户可以手动微调发送给 AI 的 Context。
 
-### 第三阶段：多路径管理与版本回溯 (透明度增强)
+### 第三阶段：多路径管理与多 Agent 协同 (战略愿景达成)
 - **[E] 思维分支管理 (Branching)**:
   - 目标：支持从任一 Commit 开启新的思维分支。
   - 细节：利用后端已有的 `parent_id` 机制，实现思维路径的 Fork 功能。
-- **[F] 上下文自动修剪算法**:
+- **[F] Worker AI 接入协议**:
+  - 目标：标准化“干活的 AI”访问脑图的流程。
+  - 细节：定义 Worker AI 如何通过 API 认领 `plan` 节点，并自动回传 `evidence`。
+- **[G] 上下文自动修剪算法**:
   - 目标：防止思维图过大导致 Prompt 溢出。
   - 细节：在 [aiContext.ts](src/utils/aiContext.ts) 中引入权重算法，优先提取“最近活跃”和“直接关联”的节点。
 

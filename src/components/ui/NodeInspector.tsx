@@ -1,5 +1,4 @@
-import React from 'react';
-import { X, Clock, Hash, FileText, Activity, Sparkles } from 'lucide-react';
+import { X, Clock, Hash, Activity, Sparkles } from 'lucide-react';
 import { CortexNodeData } from '../nodes/CortexNode';
 
 interface NodeInspectorProps {

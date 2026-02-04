@@ -1,20 +1,26 @@
-<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="100" height="100" rx="20" fill="#0f172a"/>
-  <g transform="rotate(-45, 50, 50)">
-    <path 
-      d="M20 70 C 20 20, 80 80, 80 30" 
-      stroke="#3b82f6" 
-      stroke-width="11" 
-      stroke-linecap="round" 
-      fill="none"
-    />
-    <path 
-      d="M20 30 C 20 80, 80 20, 80 70" 
-      stroke="white" 
-      stroke-width="11" 
-      stroke-linecap="round" 
-      fill="none"
-      stroke-opacity="0.85"
-    />
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 黑色圆角背景，rx="180" 模拟 macOS 连续圆角 -->
+  <rect width="1024" height="1024" rx="180" fill="#0f172a"/>
+  
+  <!-- 将主要图形缩小并居中，增加安全边距 -->
+  <!-- 原始 viewBox 是 100x100，现在在 1024x1024 中缩放到 650x650 左右 -->
+  <g transform="translate(187, 187) scale(6.5)">
+    <g transform="rotate(-45, 50, 50)">
+      <path 
+        d="M20 70 C 20 20, 80 80, 80 30" 
+        stroke="#3b82f6" 
+        stroke-width="11" 
+        stroke-linecap="round" 
+        fill="none"
+      />
+      <path 
+        d="M20 30 C 20 80, 80 20, 80 70" 
+        stroke="white" 
+        stroke-width="11" 
+        stroke-linecap="round" 
+        fill="none"
+        stroke-opacity="0.85"
+      />
+    </g>
   </g>
 </svg>

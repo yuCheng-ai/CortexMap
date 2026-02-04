@@ -6,10 +6,10 @@ import { CortexNodeData } from '../components/nodes/CortexNode';
  * Converts the visual graph into a structured narrative prompt that an LLM can understand.
  */
 
-interface ProtocolSection {
+/* interface ProtocolSection {
   role: string;
   items: string[];
-}
+} */
 
 export const generateAIContext = (
   allNodes: Node<CortexNodeData>[], 
@@ -25,7 +25,7 @@ export const generateAIContext = (
     const focusNode = allNodes.find(n => n.id === focusNodeId);
     if (focusNode) {
       // Always include global plans
-      const planNodes = allNodes.filter(n => n.data.type === 'plan');
+      // const planNodes = allNodes.filter(n => n.data.type === 'plan');
       
       // Find 1-hop neighbors
       const connectedEdgeIds = new Set<string>();
