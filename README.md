@@ -60,12 +60,20 @@ The mind map serves as the **Single Source of Truth** for all participants (both
 
 ---
 
-## **3. Core Value Propositions**
+## **3. Core Value Propositions: Why Topology Over Documentation?**
 
-CortexMap addresses three major industry pain points:
+CortexMap addresses more than just AI memory; it represents a paradigm shift in enterprise knowledge management: **evolving from "Static Documentation" to "Living Topology."**
 
-1. **Context Overload**
-   * No more reliance on ultra-long prompts; Agents only load **relevant subtrees** on demand.
+### **3.1 Documentation Replacement**
+In complex industrial sectors (e.g., BOM management, order processing), traditional PDF or Wiki documents are "dead":
+*   **Invisible**: AI struggles to pinpoint specific business constraints within a 500-page manual.
+*   **Version Fragmentation**: Documentation updates never keep pace with business changes.
+*   **Unstructured**: Documents cannot directly drive Agent behavioral logic.
+
+**The CortexMap Advantage**: By "topologizing" enterprise BOM info, product specs, and workflows, AI Agents no longer "read documents." Instead, they navigate a **"Living Enterprise Brain,"** retrieving real-time semantic nodes.
+
+### **3.2 Context Overload**
+No more reliance on ultra-long prompts; Agents only load **relevant subtrees** on demand.
 2. **Agent Amnesia (Lack of Persistence)**
    * Task states are stored long-term and can be reused across dialogues, sessions, and different Agents.
 3. **AI Opacity (Black-box Behavior)**
