@@ -37,6 +37,15 @@ function App() {
   const [isReasoning, setIsReasoning] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<'connected' | 'offline'>('offline');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const stopReasoning = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsReasoning(false);
+    }
+  }, []);
   const [selectedModel, setSelectedModel] = useState(import.meta.env.VITE_OLLAMA_MODEL || 'llama3');
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<{ id: string; role: 'user' | 'assistant' | 'system'; content: string }[]>([
@@ -195,6 +204,25 @@ function App() {
     return { x: center.x + Math.random() * 120 - 60, y: center.y + Math.random() * 120 - 60 };
   }, [nodes]);
 
+  const parseNodeJSON = (str: string) => {
+    try {
+      // 1. 清理可能的 Markdown 代码块包裹
+      let cleaned = str.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
+      return JSON.parse(cleaned);
+    } catch (e) {
+      // 2. 如果还是失败，尝试简单的正则提取对象部分 {}
+      try {
+        const match = str.match(/\{[\s\S]*\}/);
+        if (match) {
+          return JSON.parse(match[0]);
+        }
+      } catch (innerE) {
+        throw innerE;
+      }
+      throw e;
+    }
+  };
+
   const handleChatSend = useCallback(async () => {
     const content = chatInput.trim();
     if (!content) return;
@@ -214,148 +242,136 @@ function App() {
     const spawn = getChatSpawnPoint();
     setIsReasoning(true);
     const assistantId = `assistant-${Date.now()}`;
-    setChatMessages(msgs => msgs.concat({ id: assistantId, role: 'assistant', content: '' }));
+    setChatMessages(msgs => msgs.concat({ id: assistantId, role: 'assistant', content: '', rawContent: '' } as any));
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     try {
       const context = generateAIContext(nodes, edges);
-      const promptBase = `你是一个辅助思考的 Agent。当前系统的思维状态如下：
+      const timestamp = Date.now();
+      const rootId = `root-${timestamp}`;
+      const promptBase = `你是一个高级思维导图助手。请根据用户的问题进行深度拆解，并以“节点流式生长”的方式输出。
+
+### 当前思维上下文：
 ${context}
 
-用户提出的新目标/问题为："${content}"。
-请针对该目标进行深入推理并生成可执行的思维节点。
+### 用户请求：
+"${content}"
 
-请按以下格式输出：
-1. 首先进行自然语言的思考分析。
-2. 然后，使用 JSON 格式定义要添加的新节点和连线，包裹在 <brainstorm> 标签中。
+### 核心任务：
+1. **深度推理**：先在对话框中输出你的分析思路（不要包裹在任何标签内）。
+2. **连续生长**：在分析过程中或分析后，连续输出多个 <node> 标签来构建导图。
+3. **完整拆解**：不要只输出一个根节点。请针对用户的需求，至少拆解出“核心模块”、“数据流”、“技术栈”等关键维度的子节点。
 
-格式示例：
-<brainstorm>
-{
-  "root_label": "Python 自动化工作流系统规划",
-  "root_description": "构建一个集成爬虫、LLM 处理与飞书推送的端到端自动化系统。",
-  "new_nodes": [
-    { "label": "数据抓取模块", "type": "execution", "description": "负责从各技术媒体抓取资讯..." }
-  ],
-  "new_edges": [
-    { "from": "parent_node_id", "to": "new_node_index_0", "label": "包含" }
-  ]
-}
-</brainstorm>
+### 输出协议（极其重要）：
+- 每个节点必须包裹在 <node> 和 </node> 之间。
+- **禁止**在标签内使用 \`\`\`json 或任何 Markdown 格式。
+- 第一个节点必须是 \`is_root: true\`。
+- 根节点创建后，后续所有直接挂载在它下面的子节点，其 \`parent_id\` 必须固定为 "root_current"。
+- 你可以继续为子节点创建更深层的孙节点，此时 \`parent_id\` 为子节点的 \`label\` 或你预期的 ID。
 
-注意：
-- "root_label": 请为当前用户的目标生成一个极其简练、专业且具总结性的标题（不超过 15 个字），用于更新根节点。
-- "root_description": 请为当前用户的目标生成一个专业的描述（不超过 50 个字），阐述其核心价值，用于更新根节点的描述。不要原封不动使用用户的原始指令。
-- 节点 type 必须是: plan, memory, evidence, execution, logic, reflection 之一。
-- new_edges 中的 "to" 字段可以使用 "new_node_index_X" 来引用 new_nodes 数组中的第 X 个节点（从 0 开始）。
-- "parent_node_id" 是一个特殊的占位符，代表本次生成的根节点。请务必使用它作为起始连线的 "from"。
-`;
+### 示例序列：
+<node>{"is_root": true, "label": "核心目标", "type": "plan", "description": "..."}</node>
+<node>{"is_root": false, "label": "模块A", "parent_id": "root_current", "type": "logic", "description": "..."}</node>
+<node>{"is_root": false, "label": "子任务1", "parent_id": "模块A", "type": "execution", "description": "..."}</node>
+
+请立即开始：先分析，再连续生长出完整的思维树。`;
 
       let fullResponse = '';
-      await ollamaClient.chat(selectedModel, [{ role: 'user', content: `${promptBase}\n\n请开始思考：` }], (chunk) => {
+      let processedTagsCount = 0;
+      const streamNodes: Node<CortexNodeData>[] = []; // 跟踪当前流中已创建的节点
+      
+      await ollamaClient.chat(selectedModel, [{ role: 'user', content: `${promptBase}\n\n请开始思考并生长节点：` }], (chunk) => {
         fullResponse += chunk;
-        setChatMessages(msgs => msgs.map(m => 
-          m.id === assistantId ? { ...m, content: m.content + chunk } : m
-        ));
-      });
-
-      const brainstormMatch = fullResponse.match(/<brainstorm>([\s\S]*?)<\/brainstorm>/);
-      let newNodesData: any[] = [];
-      let newEdgesData: any[] = [];
-      let rootLabel = '';
-      let rootDescription = '';
-
-      if (brainstormMatch) {
-        try {
-          const jsonStr = brainstormMatch[1];
-          const parsed = JSON.parse(jsonStr);
-          if (parsed.root_label) rootLabel = parsed.root_label;
-          if (parsed.root_description) rootDescription = parsed.root_description;
-          if (parsed.new_nodes) newNodesData = parsed.new_nodes;
-          if (parsed.new_edges) newEdgesData = parsed.new_edges;
-        } catch (e) {
-          console.error("Failed to parse brainstorm JSON", e);
-        }
-      }
-
-      const timestamp = Date.now();
-      const parentId = `chat-${timestamp}`;
-      
-      // Create root node with AI generated content
-      const parentNode: Node<CortexNodeData> = {
-        id: parentId,
-        type: 'cortex',
-        position: spawn,
-        data: {
-          label: rootLabel ? `🚀 ${rootLabel}` : `🎯 目标解析`,
-          type: 'plan',
-          status: 'completed',
-          description: rootDescription || content
-        }
-      };
-
-      const createdNodes: Node<CortexNodeData>[] = newNodesData.map((n, index) => ({
-        id: `node-${timestamp}-${index}`,
-        type: 'cortex',
-        position: {
-          x: spawn.x + (Math.random() * 600 - 300), 
-          y: spawn.y + 300 + (Math.random() * 100)
-        },
-        data: {
-          label: n.label,
-          type: n.type || 'logic',
-          status: 'pending',
-          description: n.description
-        }
-      }));
-
-      let createdEdges: Edge[] = newEdgesData.map((e, index) => {
-        let source = e.from === 'parent_node_id' ? parentId : e.from;
-        let target = e.to;
         
-        if (target.startsWith('new_node_index_')) {
-          const idx = parseInt(target.split('_').pop() || '0');
-          target = `node-${timestamp}-${idx}`;
-        }
-        
-        return {
-          id: `edge-${timestamp}-${index}`,
-          source,
-          target,
-          label: e.label,
-          animated: true,
-          style: { stroke: '#94a3b8', strokeWidth: 2 }
-        };
-      });
-
-      if (createdEdges.length === 0 && createdNodes.length > 0) {
-        createdEdges = createdNodes.map((node, index) => ({
-          id: `edge-${timestamp}-auto-${index}`,
-          source: parentId,
-          target: node.id,
-          label: '生成',
-          animated: true,
-          style: { stroke: '#94a3b8', strokeWidth: 2 }
+        // 实时更新聊天内容
+        setChatMessages(msgs => msgs.map(m => {
+          if (m.id === assistantId) {
+            return { 
+              ...m, 
+              content: fullResponse,
+              rawContent: fullResponse // Store raw content for "Copy Logs"
+            } as any;
+          }
+          return m;
         }));
-      }
-       
-      // Add all nodes at once after reasoning
-      setNodes(nds => [...nds, parentNode, ...createdNodes]);
 
-      if (createdEdges.length > 0) {
-        setEdges(eds => [...eds, ...createdEdges]);
+        // 尝试解析并提取生长出来的节点
+        const nodeMatches = [...fullResponse.matchAll(/<node>([\s\S]*?)<\/node>/g)];
+        if (nodeMatches.length > processedTagsCount) {
+          for (let i = processedTagsCount; i < nodeMatches.length; i++) {
+            try {
+              const nodeData = parseNodeJSON(nodeMatches[i][1]);
+              const isRoot = nodeData.is_root === true;
+              const nodeId = isRoot ? rootId : `node-${timestamp}-${i}`;
+              
+              // 增强父节点 ID 解析逻辑
+              let parentId = nodeData.parent_id;
+              if (parentId === 'root_current') {
+                parentId = rootId;
+              } else if (parentId && !nodes.some(n => n.id === parentId) && !streamNodes.some(n => n.id === parentId)) {
+                // 尝试在现有节点和当前流已创建节点中查找
+                const allCurrentNodes = [...nodes, ...streamNodes];
+                const parentByLabel = allCurrentNodes.find(n => n.data.label === parentId || n.data.label.includes(parentId));
+                if (parentByLabel) {
+                  parentId = parentByLabel.id;
+                }
+              }
+
+              const newNode: Node<CortexNodeData> = {
+                id: nodeId,
+                type: 'cortex',
+                position: isRoot ? spawn : { 
+                  x: spawn.x + (Math.random() * 600 - 300), 
+                  y: spawn.y + 250 + (Math.random() * 100)
+                },
+                data: {
+                  label: isRoot ? `🚀 ${nodeData.label}` : nodeData.label,
+                  type: nodeData.type || 'logic',
+                  status: isRoot ? 'completed' : 'pending',
+                  description: nodeData.description
+                }
+              };
+
+              streamNodes.push(newNode);
+              setNodes(nds => {
+                if (nds.some(n => n.id === nodeId)) return nds;
+                return [...nds, newNode];
+              });
+
+              if (!isRoot && parentId) {
+                const newEdge: Edge = {
+                  id: `edge-${timestamp}-${i}`,
+                  source: parentId,
+                  target: nodeId,
+                  label: '拆解',
+                  animated: true,
+                  style: { stroke: '#3b82f6', strokeWidth: 2 }
+                };
+                setEdges(eds => [...eds, newEdge]);
+              }
+            } catch (e) {
+              console.error("Failed to parse streaming node JSON", e);
+            }
+          }
+          processedTagsCount = nodeMatches.length;
+        }
+      }, abortController.signal);
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        setChatMessages(msgs => msgs.map(m => 
+          m.id === assistantId ? { ...m, content: m.content + '\n\n(已手动停止生成)' } : m
+        ));
+      } else {
+        console.error('Chat reasoning failed:', error);
+        setChatMessages(msgs => msgs.map(m => 
+          m.id === assistantId ? { ...m, content: '推理失败，请检查 Ollama 状态或模型配置。' } : m
+        ));
       }
-      
-      const displayText = brainstormMatch ? fullResponse.replace(brainstormMatch[0], '').trim() : fullResponse;
-      setChatMessages(msgs => msgs.map(m => 
-        m.id === assistantId ? { ...m, content: displayText || m.content } : m
-      ));
-    } catch (error) {
-      console.error('Chat reasoning failed:', error);
-      setChatMessages(msgs => msgs.map(m => 
-        m.id === assistantId ? { ...m, content: '推理失败，请检查 Ollama 状态或模型配置。' } : m
-      ));
     } finally {
       setIsReasoning(false);
+      abortControllerRef.current = null;
     }
   }, [chatInput, viewMode, ollamaStatus, getChatSpawnPoint, nodes, edges, selectedModel, setNodes, setEdges]);
 
@@ -372,117 +388,137 @@ ${context}
     setChatMessages(msgs => msgs.concat({ 
       id: assistantId, 
       role: 'assistant', 
-      content: `正在针对节点 "${parentNode.data.label}" 进行深入推理...` 
-    }));
+      content: `正在针对节点 "${parentNode.data.label}" 进行深入推理...`,
+      rawContent: ''
+    } as any));
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     try {
-      const promptBase = `你是一个辅助思考的 Agent。当前系统的思维状态如下：
+      const timestamp = Date.now();
+      const promptBase = `你是一个高级思维导图助手。请针对特定节点进行深度扩展，并以“节点流式生长”的方式输出。
+
+### 当前思维上下文：
 ${context}
 
-请针对节点 "${parentNode.data.label}" 进行深入推理。
-你可以生成多个新的节点来扩展思维。
+### 目标扩展节点：
+"${parentNode.data.label}" (ID: ${nodeId})
 
-请按以下格式输出：
-1. 首先进行自然语言的思考分析。
-2. 然后，使用 JSON 格式定义要添加的新节点 and 连线，包裹在 <brainstorm> 标签中。
+### 核心任务：
+1. **深度推理**：先在对话框中输出你对该节点的详细拆解思路（不要包裹在任何标签内）。
+2. **连续生长**：输出多个 <node> 标签来扩展思维分支。
+3. **多维拆解**：请从原因、方案、风险、预期结果等多个维度对目标节点进行细化。
 
-格式示例：
-<brainstorm>
-{
-  "new_nodes": [
-    { "label": "风险分析", "type": "logic", "description": "分析市场波动的潜在风险..." }
-  ],
-  "new_edges": [
-    { "from": "parent_node_id", "to": "new_node_index_0", "label": "导致" }
-  ]
-}
-</brainstorm>
+### 输出协议（极其重要）：
+- 每个节点必须包裹在 <node> 和 </node> 之间。
+- **禁止**在标签内使用 \`\`\`json 或任何 Markdown 格式。
+- 新生长节点的 \`parent_id\` 默认应为 "${nodeId}"。
+- 如果你生长出了二级子节点，请使用一级子节点的 \`label\` 或你预期的 ID 作为 \`parent_id\`。
 
-注意：
-- 节点 type 必须是: plan, memory, evidence, execution, logic, reflection 之一。
-- new_edges 中的 "to" 字段可以使用 "new_node_index_X" 来引用 new_nodes 数组中的第 X 个节点（从 0 开始）。
-- 当前节点 ID 为 "${parentNode.id}"。`;
+### 示例序列：
+<node>{"label": "细化分支1", "parent_id": "${nodeId}", "type": "logic", "description": "..."}</node>
+<node>{"label": "具体措施A", "parent_id": "细化分支1", "type": "execution", "description": "..."}</node>
+
+请立即开始：先分析，再连续生长出深度拆解的子树。`;
+
       const promptOverride = parentNode.data.promptOverride?.trim();
       const prompt = promptOverride
         ? `${promptBase}\n\n用户补充指令：\n${promptOverride}\n\n请开始思考：`
         : `${promptBase}\n\n请开始思考：`;
 
       let fullResponse = '';
+      let processedTagsCount = 0;
+      const streamNodes: Node<CortexNodeData>[] = [];
+
       await ollamaClient.chat(selectedModel, [{ role: 'user', content: prompt }], (chunk) => {
         fullResponse += chunk;
-        // Update assistant message in real-time
+        
+        // 实时更新聊天内容
+        setChatMessages(msgs => msgs.map(m => {
+          if (m.id === assistantId) {
+            return { 
+              ...m, 
+              content: fullResponse,
+              rawContent: fullResponse
+            } as any;
+          }
+          return m;
+        }));
+
+        // 尝试解析并提取生长出来的节点
+        const nodeMatches = [...fullResponse.matchAll(/<node>([\s\S]*?)<\/node>/g)];
+        if (nodeMatches.length > processedTagsCount) {
+          for (let i = processedTagsCount; i < nodeMatches.length; i++) {
+            try {
+              const nodeData = parseNodeJSON(nodeMatches[i][1]);
+              const newNodeId = `node-${timestamp}-${i}`;
+              
+              // 增强父节点 ID 解析逻辑
+              let parentId = nodeData.parent_id || nodeId;
+              if (parentId && !nodes.some(n => n.id === parentId) && !streamNodes.some(n => n.id === parentId)) {
+                // 尝试在现有节点和当前流已创建节点中查找
+                const allCurrentNodes = [...nodes, ...streamNodes];
+                const parentByLabel = allCurrentNodes.find(n => n.data.label === parentId || n.data.label.includes(parentId));
+                if (parentByLabel) {
+                  parentId = parentByLabel.id;
+                }
+              }
+
+              const newNode: Node<CortexNodeData> = { 
+                id: newNodeId,
+                type: 'cortex',
+                position: { 
+                  x: parentNode.position.x + (Math.random() * 600 - 300), 
+                  y: parentNode.position.y + 300 + (Math.random() * 100)
+                },
+                data: {
+                  label: nodeData.label,
+                  type: nodeData.type || 'logic',
+                  status: 'pending',
+                  description: nodeData.description
+                }
+              };
+
+              streamNodes.push(newNode);
+              setNodes(nds => {
+                if (nds.some(n => n.id === newNodeId)) return nds;
+                return [...nds, newNode];
+              });
+
+              if (parentId) {
+                const newEdge: Edge = {
+                  id: `edge-${timestamp}-${i}`,
+                  source: parentId,
+                  target: newNodeId,
+                  label: '拆解',
+                  animated: true,
+                  style: { stroke: '#94a3b8', strokeWidth: 2 }
+                };
+                setEdges(eds => [...eds, newEdge]);
+              }
+            } catch (e) {
+              console.error("Failed to parse streaming node JSON in reasoning", e);
+            }
+          }
+          processedTagsCount = nodeMatches.length;
+        }
+      }, abortController.signal);
+
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
         setChatMessages(msgs => msgs.map(m => 
-          m.id === assistantId ? { ...m, content: fullResponse } : m
+          m.id === assistantId ? { ...m, content: m.content + '\n\n(已手动停止生成)' } : m
         ));
-      });
-
-      // Parse <brainstorm> block
-      const brainstormMatch = fullResponse.match(/<brainstorm>([\s\S]*?)<\/brainstorm>/);
-      let newNodesData: any[] = [];
-      let newEdgesData: any[] = [];
-
-      if (brainstormMatch) {
-        try {
-          const jsonStr = brainstormMatch[1];
-          const parsed = JSON.parse(jsonStr);
-          if (parsed.new_nodes) newNodesData = parsed.new_nodes;
-          if (parsed.new_edges) newEdgesData = parsed.new_edges;
-        } catch (e) {
-          console.error("Failed to parse brainstorm JSON", e);
-        }
+      } else {
+        console.error('Reasoning failed:', error);
+        setChatMessages(msgs => msgs.map(m => 
+          m.id === assistantId ? { ...m, content: '推理失败，请重试。' } : m
+        ));
       }
-
-      const timestamp = Date.now();
-      const createdNodes: Node<CortexNodeData>[] = newNodesData.map((n, index) => ({
-        id: `node-${timestamp}-${index}`,
-        type: 'cortex',
-        position: { 
-          x: parentNode.position.x + (Math.random() * 600 - 300), 
-          y: parentNode.position.y + 300 + (Math.random() * 100)
-        },
-        data: {
-          label: n.label,
-          type: n.type || 'logic',
-          status: 'pending',
-          description: n.description
-        }
-      }));
-
-      const createdEdges: Edge[] = newEdgesData.map((e, index) => {
-        let source = e.from === 'parent_node_id' ? nodeId : e.from;
-        let target = e.to;
-        
-        if (target.startsWith('new_node_index_')) {
-          const idx = parseInt(target.split('_').pop() || '0');
-          target = `node-${timestamp}-${idx}`;
-        }
-        
-        return {
-          id: `edge-${timestamp}-${index}`,
-          source,
-          target,
-          label: e.label,
-          animated: true,
-          style: { stroke: '#94a3b8', strokeWidth: 2 }
-        };
-      });
-
-      // After finished, update chat with clean text and add nodes
-      const displayText = brainstormMatch ? fullResponse.replace(brainstormMatch[0], '').trim() : fullResponse;
-      setChatMessages(msgs => msgs.map(m => 
-        m.id === assistantId ? { ...m, content: displayText || m.content } : m
-      ));
-
-      setNodes(nds => [...nds, ...createdNodes]);
-
-      if (createdEdges.length > 0) {
-        setEdges(eds => [...eds, ...createdEdges]);
-      }
-
-    } catch (error) {
-      console.error('Reasoning failed:', error);
     } finally {
       setIsReasoning(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -741,20 +777,50 @@ ${context}
                 scrollBehavior: 'smooth'
               }}>
                 {chatMessages.map(message => (
-                  <div key={message.id} style={{ 
-                    alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
-                    background: message.role === 'user' ? '#2563eb' : message.role === 'assistant' ? '#1e293b' : 'transparent',
-                    color: message.role === 'system' ? '#94a3b8' : '#f8fafc',
-                    border: message.role === 'assistant' ? '1px solid #334155' : 'none',
-                    borderRadius: '12px',
-                    padding: message.role === 'system' ? '0' : '10px 14px',
-                    maxWidth: '90%',
-                    lineHeight: 1.5,
-                    whiteSpace: 'pre-wrap',
-                    boxShadow: message.role === 'system' ? 'none' : '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                    fontSize: message.role === 'assistant' ? '12px' : '13px'
-                  }}>
-                    {message.content}
+                  <div 
+                    key={message.id} 
+                    style={{ 
+                      alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
+                      background: message.role === 'user' ? '#2563eb' : message.role === 'assistant' ? '#1e293b' : 'transparent',
+                      color: message.role === 'system' ? '#94a3b8' : '#f8fafc',
+                      border: message.role === 'assistant' ? '1px solid #334155' : 'none',
+                      borderRadius: '12px',
+                      padding: message.role === 'system' ? '0' : '10px 14px',
+                      maxWidth: '90%',
+                      lineHeight: 1.5,
+                      whiteSpace: 'pre-wrap',
+                      boxShadow: message.role === 'system' ? 'none' : '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                      fontSize: message.role === 'assistant' ? '12px' : '13px',
+                      position: 'relative'
+                    }}
+                  >
+                    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            {message.content}
+                          </div>
+                    {(message as any).rawContent && (
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText((message as any).rawContent);
+                          alert('已复制原始思考日志到剪贴板！');
+                        }}
+                        style={{
+                          position: 'absolute',
+                          right: '-24px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#64748b',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          opacity: 0.5,
+                          transition: 'opacity 0.2s'
+                        }}
+                        title="复制原始日志"
+                      >
+                        <Copy size={12} />
+                      </button>
+                    )}
                   </div>
                 ))}
                 {isReasoning && (
@@ -774,14 +840,14 @@ ${context}
                 gap: '8px',
                 background: '#0f172a'
               }}>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                   <textarea
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
-                        handleChatSend();
+                        if (!isReasoning) handleChatSend();
                       }
                     }}
                     placeholder="输入任务或问题..."
@@ -801,24 +867,48 @@ ${context}
                     onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
                     onBlur={(e) => e.currentTarget.style.borderColor = '#334155'}
                   />
-                  <button
-                    onClick={handleChatSend}
-                    disabled={!chatInput.trim() || ollamaStatus !== 'connected' || viewMode !== 'live'}
-                    style={{
-                      padding: '0 16px',
-                      background: chatInput.trim() && ollamaStatus === 'connected' && viewMode === 'live' ? '#2563eb' : '#334155',
-                      border: 'none',
-                      borderRadius: '8px',
-                      color: 'white',
-                      cursor: chatInput.trim() && ollamaStatus === 'connected' && viewMode === 'live' ? 'pointer' : 'not-allowed',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      transition: 'background 0.2s',
-                      opacity: chatInput.trim() && ollamaStatus === 'connected' && viewMode === 'live' ? 1 : 0.5
-                    }}
-                  >
-                    发送
-                  </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {isReasoning ? (
+                      <button
+                        onClick={stopReasoning}
+                        style={{
+                          padding: '8px',
+                          background: '#f43f5e',
+                          border: 'none',
+                          borderRadius: '8px',
+                          color: 'white',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <Terminal size={14} /> 停止
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleChatSend}
+                        disabled={!chatInput.trim() || ollamaStatus !== 'connected' || viewMode !== 'live'}
+                        style={{
+                          padding: '0 16px',
+                          height: '36px',
+                          background: chatInput.trim() && ollamaStatus === 'connected' && viewMode === 'live' ? '#2563eb' : '#334155',
+                          border: 'none',
+                          borderRadius: '8px',
+                          color: 'white',
+                          cursor: chatInput.trim() && ollamaStatus === 'connected' && viewMode === 'live' ? 'pointer' : 'not-allowed',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          transition: 'background 0.2s',
+                          opacity: chatInput.trim() && ollamaStatus === 'connected' && viewMode === 'live' ? 1 : 0.5
+                        }}
+                      >
+                        发送
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ fontSize: '10px', color: '#64748b', textAlign: 'center' }}>
                   按 Enter 发送，Shift + Enter 换行

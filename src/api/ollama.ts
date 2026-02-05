@@ -74,10 +74,11 @@ export const ollamaClient = {
     }
   },
 
-  async chat(model: string, messages: { role: string; content: string }[], onChunk?: (text: string) => void): Promise<string> {
+  async chat(model: string, messages: { role: string; content: string }[], onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> {
     const controller = new AbortController();
-    // Default 60s timeout for initial connection/response, but stream reading has its own flow
-    const timeoutId = setTimeout(() => controller.abort(), 60000); 
+    // Use the provided signal if available, otherwise use our own controller
+    const effectiveSignal = signal || controller.signal;
+    const timeoutId = signal ? null : setTimeout(() => controller.abort(), 60000); 
 
     try {
       const response = await fetch(`${OLLAMA_BASE}/chat`, {
@@ -90,10 +91,10 @@ export const ollamaClient = {
           messages,
           stream: !!onChunk,
         }),
-        signal: controller.signal
+        signal: effectiveSignal
       });
 
-      clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`Ollama error: ${response.statusText}`);
@@ -103,13 +104,18 @@ export const ollamaClient = {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullText = '';
+        let buffer = ''; // Buffer for partial JSON lines
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
           const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
+          buffer += chunk;
+          
+          const lines = buffer.split('\n');
+          // The last element might be an incomplete line, keep it in buffer
+          buffer = lines.pop() || '';
           
           for (const line of lines) {
             if (!line.trim()) continue;
@@ -119,8 +125,20 @@ export const ollamaClient = {
               fullText += content;
               onChunk(content);
             } catch (e) {
-              console.error('Error parsing Ollama chunk', e);
+              console.error('Error parsing Ollama chunk', e, 'Line:', line);
             }
+          }
+        }
+        
+        // Handle any remaining content in buffer
+        if (buffer.trim()) {
+          try {
+            const json: OllamaChatResponse = JSON.parse(buffer);
+            const content = json.message.content;
+            fullText += content;
+            onChunk(content);
+          } catch (e) {
+            // Might not be valid JSON if the stream cut off abruptly
           }
         }
         return fullText;

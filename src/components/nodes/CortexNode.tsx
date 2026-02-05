@@ -60,7 +60,7 @@ const statusIcons = {
 };
 
 export const CortexNode = memo(function CortexNode({ data, selected }: NodeProps<CortexNodeProps>) {
-  const config = typeConfig[data.type || 'logic'];
+  const config = typeConfig[data.type as keyof typeof typeConfig] || typeConfig.logic;
   const Icon = config.icon;
   const StatusIcon = statusIcons[data.status || 'pending'];
 
