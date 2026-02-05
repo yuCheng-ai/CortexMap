@@ -281,6 +281,7 @@ ${context}
       let fullResponse = '';
       let processedTagsCount = 0;
       const streamNodes: Node<CortexNodeData>[] = []; // 跟踪当前流中已创建的节点
+      const parentChildCounts: Record<string, number> = {}; // 跟踪每个父节点的子节点数量，用于布局
       
       await ollamaClient.chat(selectedModel, [{ role: 'user', content: `${promptBase}\n\n请开始思考并生长节点：` }], (chunk) => {
         fullResponse += chunk;
@@ -308,24 +309,48 @@ ${context}
               
               // 增强父节点 ID 解析逻辑
               let parentId = nodeData.parent_id;
+              let parentNode: Node<CortexNodeData> | undefined;
+
               if (parentId === 'root_current') {
                 parentId = rootId;
-              } else if (parentId && !nodes.some(n => n.id === parentId) && !streamNodes.some(n => n.id === parentId)) {
-                // 尝试在现有节点和当前流已创建节点中查找
-                const allCurrentNodes = [...nodes, ...streamNodes];
-                const parentByLabel = allCurrentNodes.find(n => n.data.label === parentId || n.data.label.includes(parentId));
-                if (parentByLabel) {
-                  parentId = parentByLabel.id;
+              }
+              
+              const allCurrentNodes = [...nodes, ...streamNodes];
+              if (parentId) {
+                parentNode = allCurrentNodes.find(n => n.id === parentId);
+                if (!parentNode) {
+                  // 尝试按 Label 查找
+                  parentNode = allCurrentNodes.find(n => n.data.label === parentId || n.data.label.includes(parentId!));
+                  if (parentNode) parentId = parentNode.id;
                 }
+              }
+
+              // 自动布局逻辑
+              let position = isRoot ? spawn : { x: spawn.x, y: spawn.y + 250 };
+              if (!isRoot && parentNode) {
+                const childIndex = parentChildCounts[parentNode.id] || 0;
+                parentChildCounts[parentNode.id] = childIndex + 1;
+
+                // 简单的扇形/水平分布算法
+                const horizontalSpacing = 250; // 节点水平间距
+                const verticalSpacing = 200;   // 节点垂直间距
+                
+                // 计算相对于父节点的偏移
+                // 例如：0 -> 0, 1 -> -250, 2 -> 250, 3 -> -500, 4 -> 500 ...
+                const multiplier = Math.ceil(childIndex / 2);
+                const direction = childIndex % 2 === 0 ? 1 : -1;
+                const offsetX = childIndex === 0 ? 0 : direction * multiplier * horizontalSpacing;
+                
+                position = {
+                  x: parentNode.position.x + offsetX,
+                  y: parentNode.position.y + verticalSpacing
+                };
               }
 
               const newNode: Node<CortexNodeData> = {
                 id: nodeId,
                 type: 'cortex',
-                position: isRoot ? spawn : { 
-                  x: spawn.x + (Math.random() * 600 - 300), 
-                  y: spawn.y + 250 + (Math.random() * 100)
-                },
+                position,
                 data: {
                   label: isRoot ? `🚀 ${nodeData.label}` : nodeData.label,
                   type: nodeData.type || 'logic',
@@ -430,6 +455,7 @@ ${context}
       let fullResponse = '';
       let processedTagsCount = 0;
       const streamNodes: Node<CortexNodeData>[] = [];
+      const parentChildCounts: Record<string, number> = {};
 
       await ollamaClient.chat(selectedModel, [{ role: 'user', content: prompt }], (chunk) => {
         fullResponse += chunk;
@@ -456,22 +482,45 @@ ${context}
               
               // 增强父节点 ID 解析逻辑
               let parentId = nodeData.parent_id || nodeId;
-              if (parentId && !nodes.some(n => n.id === parentId) && !streamNodes.some(n => n.id === parentId)) {
-                // 尝试在现有节点和当前流已创建节点中查找
-                const allCurrentNodes = [...nodes, ...streamNodes];
-                const parentByLabel = allCurrentNodes.find(n => n.data.label === parentId || n.data.label.includes(parentId));
-                if (parentByLabel) {
-                  parentId = parentByLabel.id;
+              let parentNodeObj: Node<CortexNodeData> | undefined;
+
+              const allCurrentNodes = [...nodes, ...streamNodes];
+              if (parentId) {
+                parentNodeObj = allCurrentNodes.find(n => n.id === parentId);
+                if (!parentNodeObj) {
+                  // 尝试按 Label 查找
+                  parentNodeObj = allCurrentNodes.find(n => n.data.label === parentId || n.data.label.includes(parentId!));
+                  if (parentNodeObj) parentId = parentNodeObj.id;
                 }
+              }
+
+              // 自动布局逻辑
+              let position = { 
+                x: parentNode.position.x + (Math.random() * 600 - 300), 
+                y: parentNode.position.y + 300 + (Math.random() * 100)
+              };
+
+              if (parentNodeObj) {
+                const childIndex = parentChildCounts[parentNodeObj.id] || 0;
+                parentChildCounts[parentNodeObj.id] = childIndex + 1;
+
+                const horizontalSpacing = 250;
+                const verticalSpacing = 200;
+                
+                const multiplier = Math.ceil(childIndex / 2);
+                const direction = childIndex % 2 === 0 ? 1 : -1;
+                const offsetX = childIndex === 0 ? 0 : direction * multiplier * horizontalSpacing;
+                
+                position = {
+                  x: parentNodeObj.position.x + offsetX,
+                  y: parentNodeObj.position.y + verticalSpacing
+                };
               }
 
               const newNode: Node<CortexNodeData> = { 
                 id: newNodeId,
                 type: 'cortex',
-                position: { 
-                  x: parentNode.position.x + (Math.random() * 600 - 300), 
-                  y: parentNode.position.y + 300 + (Math.random() * 100)
-                },
+                position,
                 data: {
                   label: nodeData.label,
                   type: nodeData.type || 'logic',
