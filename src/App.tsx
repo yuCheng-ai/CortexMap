@@ -29,13 +29,12 @@ const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
 
 const nodeWidth = 260; // 与 CortexNode.tsx 保持一致
-const nodeHeight = 120; // 稍微调低，因为现在可以换行，垂直占用可能增加
+const nodeHeight = 80; // 调低计算高度，让 Dagre 排布更紧凑
 
 const getLayoutedElements = <T extends Record<string, any>,>(nodes: Node<T>[], edges: Edge[], direction = 'LR'): { nodes: Node<T>[], edges: Edge[] } => {
   const isHorizontal = direction === 'LR';
-  // ranksep 增加到 180，解决父子节点太近的问题
-  // nodesep 减小到 80，使兄弟节点更紧凑
-  dagreGraph.setGraph({ rankdir: direction, ranksep: 180, nodesep: 80 }); 
+  // 大幅压缩间距：ranksep (层级) 120, nodesep (兄弟) 40
+  dagreGraph.setGraph({ rankdir: direction, ranksep: 120, nodesep: 40 }); 
 
   nodes.forEach((node) => {
     dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
@@ -311,7 +310,7 @@ ${context}
 ### 核心任务：
 1. **深度推理**：先在对话框中输出你的分析思路（不要包裹在任何标签内）。
 2. **连续生长**：在分析过程中或分析后，连续输出多个 <node> 标签来构建导图。
-3. **完整拆解**：不要只输出一个根节点。请针对用户的需求，至少拆解出“核心模块”、“数据流”、“技术栈”等关键维度的子节点。
+3. **完整拆解**：不要只输出一个根节点。请根据用户问题的实际情况，灵活拆解出多个相关的、具有逻辑深度的子节点。
 
 ### 输出协议（极其重要）：
 - 每个节点必须包裹在 <node> 和 </node> 之间。
@@ -387,11 +386,11 @@ ${context}
                 parentChildCounts[parentNode.id] = childIndex + 1;
 
                 // 紧凑的垂直分布算法 (适配 LR)
-                const horizontalSpacing = 440; // 节点水平间距 (层级)
-                const verticalSpacing = 140;   // 节点垂直间距 (兄弟)，调小以更紧凑
+                const horizontalSpacing = 380; // 节点水平间距 (层级)
+                const verticalSpacing = 100;   // 节点垂直间距 (兄弟)，进一步压缩
                 
                 // 简单的从上往下堆叠，初始稍微上移以对齐父节点
-                const offsetY = (childIndex * verticalSpacing) - 100;
+                const offsetY = (childIndex * verticalSpacing) - 60;
                 
                 position = {
                   x: parentNode.position.x + horizontalSpacing,
@@ -422,7 +421,7 @@ ${context}
                   id: `edge-${timestamp}-${i}`,
                   source: parentId,
                   target: nodeId,
-                  label: '拆解',
+                  type: 'smoothstep', // 改为阶梯线，更适合脑图布局
                   animated: true,
                   style: { stroke: '#3b82f6', strokeWidth: 2 }
                 };
@@ -492,7 +491,7 @@ ${context}
 ### 核心任务：
 1. **深度推理**：先在对话框中输出你对该节点的详细拆解思路（不要包裹在任何标签内）。
 2. **连续生长**：输出多个 <node> 标签来扩展思维分支。
-3. **多维拆解**：请从原因、方案、风险、预期结果等多个维度对目标节点进行细化。
+3. **多维拆解**：请根据目标节点的具体含义，灵活地从多个相关维度进行深度细化（例如原因、方案、风险、具体步骤、预期效果等）。
 
 ### 输出协议（极其重要）：
 - 每个节点必须包裹在 <node> 和 </node> 之间。
@@ -569,11 +568,11 @@ ${context}
                 const childIndex = parentChildCounts[parentNodeObj.id] || 0;
                 parentChildCounts[parentNodeObj.id] = childIndex + 1;
 
-                const horizontalSpacing = 440; // 层级间距
-                const verticalSpacing = 140;   // 兄弟间距，调小以更紧凑
+                const horizontalSpacing = 380; // 层级间距
+                const verticalSpacing = 100;   // 兄弟间距
                 
                 // 简单的从上往下堆叠
-                const offsetY = (childIndex * verticalSpacing) - 100;
+                const offsetY = (childIndex * verticalSpacing) - 60;
                 
                 position = {
                   x: parentNodeObj.position.x + horizontalSpacing,
@@ -604,7 +603,7 @@ ${context}
                   id: `edge-${timestamp}-${i}`,
                   source: parentId,
                   target: newNodeId,
-                  label: '拆解',
+                  type: 'smoothstep', // 改为阶梯线
                   animated: true,
                   style: { stroke: '#94a3b8', strokeWidth: 2 }
                 };
