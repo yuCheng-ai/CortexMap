@@ -76,13 +76,16 @@ export const CortexNode = memo(function CortexNode({ data, selected }: NodeProps
         backgroundColor: config.color,
         boxShadow: isActive ? `0 0 20px ${config.color}` : config.shadow,
         color: 'white',
-        minWidth: '200px',
+        width: '260px', // 固定宽度
         fontFamily: 'system-ui, -apple-system, sans-serif',
         transition: 'all 0.3s ease',
         transform: isActive ? 'scale(1.05)' : 'scale(1)',
+        wordBreak: 'break-word', // 允许换行
+        whiteSpace: 'normal',    // 允许换行
       }}
     >
-      <Handle type="target" position={Position.Top} style={{ background: 'rgba(255,255,255,0.5)', border: 'none' }} />
+      <Handle type="target" position={Position.Left} style={{ background: 'rgba(255,255,255,0.5)', border: 'none' }} />
+      <Handle type="source" position={Position.Right} style={{ background: 'rgba(255,255,255,0.5)', border: 'none' }} />
       
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
         <Icon size={16} style={{ opacity: 0.9 }} />
@@ -125,8 +128,6 @@ export const CortexNode = memo(function CortexNode({ data, selected }: NodeProps
           </div>
         )
       )}
-
-      <Handle type="source" position={Position.Bottom} style={{ background: 'rgba(255,255,255,0.5)', border: 'none' }} />
     </div>
   );
 });

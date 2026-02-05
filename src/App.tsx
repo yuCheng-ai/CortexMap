@@ -18,11 +18,48 @@ import { CortexNode, CortexNodeData } from './components/nodes/CortexNode';
 import { NodeInspector } from './components/ui/NodeInspector';
 import { TimeTravelSlider } from './components/TimeTravelSlider';
 import { CortexLogo } from './components/ui/CortexLogo';
-import { Plus, GitCommit, RefreshCw, Terminal, Copy, Brain, Cpu, GripHorizontal } from 'lucide-react';
+import { Plus, GitCommit, RefreshCw, Terminal, Copy, Brain, Cpu, GripHorizontal, LayoutDashboard } from 'lucide-react';
 import { apiClient } from './api/client';
 import { ollamaClient } from './api/ollama';
 import { generateAIContext } from './utils/aiContext';
 import Draggable from 'react-draggable';
+import dagre from 'dagre';
+
+const dagreGraph = new dagre.graphlib.Graph();
+dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+const nodeWidth = 260; // 与 CortexNode.tsx 保持一致
+const nodeHeight = 120; // 稍微调低，因为现在可以换行，垂直占用可能增加
+
+const getLayoutedElements = <T extends Record<string, any>,>(nodes: Node<T>[], edges: Edge[], direction = 'LR'): { nodes: Node<T>[], edges: Edge[] } => {
+  const isHorizontal = direction === 'LR';
+  // ranksep 增加到 180，解决父子节点太近的问题
+  // nodesep 减小到 80，使兄弟节点更紧凑
+  dagreGraph.setGraph({ rankdir: direction, ranksep: 180, nodesep: 80 }); 
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  const layoutedNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - nodeWidth / 2,
+        y: nodeWithPosition.y - nodeHeight / 2,
+      },
+    };
+  });
+
+  return { nodes: layoutedNodes, edges };
+};
 
 const initialNodes: Node<CortexNodeData>[] = [];
 
@@ -56,6 +93,18 @@ function App() {
   // Time Travel State
   const [viewMode, setViewMode] = useState<'live' | 'preview'>('live');
   const [liveState, setLiveState] = useState<{nodes: Node<CortexNodeData>[], edges: Edge[]} | null>(null);
+
+  const onLayout = useCallback((direction = 'LR', currentNodes?: Node<CortexNodeData>[], currentEdges?: Edge[]) => {
+    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+      currentNodes || nodes,
+      currentEdges || edges,
+      direction
+    );
+
+    setNodes([...layoutedNodes]);
+    setEdges([...layoutedEdges]);
+  }, [nodes, edges, setNodes, setEdges]);
+
   const chatEndRef = useCallback((node: HTMLDivElement | null) => {
     if (node) {
       node.scrollIntoView({ behavior: 'smooth' });
@@ -281,7 +330,13 @@ ${context}
       let fullResponse = '';
       let processedTagsCount = 0;
       const streamNodes: Node<CortexNodeData>[] = []; // 跟踪当前流中已创建的节点
-      const parentChildCounts: Record<string, number> = {}; // 跟踪每个父节点的子节点数量，用于布局
+      const streamEdges: Edge[] = []; // 跟踪当前流中已创建的连线
+      
+      // 初始化子节点计数，避免新生成的兄弟节点与现有节点重合
+      const parentChildCounts: Record<string, number> = {};
+      edges.forEach(edge => {
+        parentChildCounts[edge.source] = (parentChildCounts[edge.source] || 0) + 1;
+      });
       
       await ollamaClient.chat(selectedModel, [{ role: 'user', content: `${promptBase}\n\n请开始思考并生长节点：` }], (chunk) => {
         fullResponse += chunk;
@@ -325,25 +380,22 @@ ${context}
                 }
               }
 
-              // 自动布局逻辑
-              let position = isRoot ? spawn : { x: spawn.x, y: spawn.y + 250 };
+              // 自动布局逻辑 (LR 方向)
+              let position = isRoot ? spawn : { x: spawn.x + 300, y: spawn.y };
               if (!isRoot && parentNode) {
                 const childIndex = parentChildCounts[parentNode.id] || 0;
                 parentChildCounts[parentNode.id] = childIndex + 1;
 
-                // 简单的扇形/水平分布算法
-                const horizontalSpacing = 250; // 节点水平间距
-                const verticalSpacing = 200;   // 节点垂直间距
+                // 紧凑的垂直分布算法 (适配 LR)
+                const horizontalSpacing = 440; // 节点水平间距 (层级)
+                const verticalSpacing = 140;   // 节点垂直间距 (兄弟)，调小以更紧凑
                 
-                // 计算相对于父节点的偏移
-                // 例如：0 -> 0, 1 -> -250, 2 -> 250, 3 -> -500, 4 -> 500 ...
-                const multiplier = Math.ceil(childIndex / 2);
-                const direction = childIndex % 2 === 0 ? 1 : -1;
-                const offsetX = childIndex === 0 ? 0 : direction * multiplier * horizontalSpacing;
+                // 简单的从上往下堆叠，初始稍微上移以对齐父节点
+                const offsetY = (childIndex * verticalSpacing) - 100;
                 
                 position = {
-                  x: parentNode.position.x + offsetX,
-                  y: parentNode.position.y + verticalSpacing
+                  x: parentNode.position.x + horizontalSpacing,
+                  y: parentNode.position.y + offsetY
                 };
               }
 
@@ -374,8 +426,12 @@ ${context}
                   animated: true,
                   style: { stroke: '#3b82f6', strokeWidth: 2 }
                 };
+                streamEdges.push(newEdge);
                 setEdges(eds => [...eds, newEdge]);
               }
+
+              // 实时触发布局调整，确保一边生成一边排版
+              onLayout('LR', [...nodes, ...streamNodes], [...edges, ...streamEdges]);
             } catch (e) {
               console.error("Failed to parse streaming node JSON", e);
             }
@@ -383,6 +439,9 @@ ${context}
           processedTagsCount = nodeMatches.length;
         }
       }, abortController.signal);
+      
+      // 生成结束后自动整理布局，传入完整的节点和连线列表，避免消失
+      onLayout('LR', [...nodes, ...streamNodes], [...edges, ...streamEdges]);
     } catch (error: any) {
       if (error.name === 'AbortError') {
         setChatMessages(msgs => msgs.map(m => 
@@ -455,7 +514,13 @@ ${context}
       let fullResponse = '';
       let processedTagsCount = 0;
       const streamNodes: Node<CortexNodeData>[] = [];
+      const streamEdges: Edge[] = [];
+      
+      // 初始化子节点计数，避免新生成的兄弟节点与现有节点重合
       const parentChildCounts: Record<string, number> = {};
+      edges.forEach(edge => {
+        parentChildCounts[edge.source] = (parentChildCounts[edge.source] || 0) + 1;
+      });
 
       await ollamaClient.chat(selectedModel, [{ role: 'user', content: prompt }], (chunk) => {
         fullResponse += chunk;
@@ -494,26 +559,25 @@ ${context}
                 }
               }
 
-              // 自动布局逻辑
+              // 自动布局逻辑 (LR 方向)
               let position = { 
-                x: parentNode.position.x + (Math.random() * 600 - 300), 
-                y: parentNode.position.y + 300 + (Math.random() * 100)
+                x: parentNode.position.x + 350, 
+                y: parentNode.position.y + (Math.random() * 200 - 100)
               };
 
               if (parentNodeObj) {
                 const childIndex = parentChildCounts[parentNodeObj.id] || 0;
                 parentChildCounts[parentNodeObj.id] = childIndex + 1;
 
-                const horizontalSpacing = 250;
-                const verticalSpacing = 200;
+                const horizontalSpacing = 440; // 层级间距
+                const verticalSpacing = 140;   // 兄弟间距，调小以更紧凑
                 
-                const multiplier = Math.ceil(childIndex / 2);
-                const direction = childIndex % 2 === 0 ? 1 : -1;
-                const offsetX = childIndex === 0 ? 0 : direction * multiplier * horizontalSpacing;
+                // 简单的从上往下堆叠
+                const offsetY = (childIndex * verticalSpacing) - 100;
                 
                 position = {
-                  x: parentNodeObj.position.x + offsetX,
-                  y: parentNodeObj.position.y + verticalSpacing
+                  x: parentNodeObj.position.x + horizontalSpacing,
+                  y: parentNodeObj.position.y + offsetY
                 };
               }
 
@@ -544,8 +608,12 @@ ${context}
                   animated: true,
                   style: { stroke: '#94a3b8', strokeWidth: 2 }
                 };
+                streamEdges.push(newEdge);
                 setEdges(eds => [...eds, newEdge]);
               }
+
+              // 实时触发布局调整，确保一边生成一边排版
+              onLayout('LR', [...nodes, ...streamNodes], [...edges, ...streamEdges]);
             } catch (e) {
               console.error("Failed to parse streaming node JSON in reasoning", e);
             }
@@ -554,6 +622,8 @@ ${context}
         }
       }, abortController.signal);
 
+      // 生成结束后自动整理布局，传入完整的节点和连线列表，避免消失
+      onLayout('LR', [...nodes, ...streamNodes], [...edges, ...streamEdges]);
     } catch (error: any) {
       if (error.name === 'AbortError') {
         setChatMessages(msgs => msgs.map(m => 
@@ -686,6 +756,30 @@ ${context}
               margin: 0
             }} 
           />
+
+          <div style={{ width: '1px', height: '24px', background: '#334155' }} />
+
+          <button 
+            onClick={() => onLayout('LR')}
+            style={{
+              padding: '8px 12px',
+              backgroundColor: '#1e293b',
+              border: '1px solid #334155',
+              borderRadius: '8px',
+              color: 'white',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '12px',
+              fontWeight: 600,
+              transition: 'all 0.2s'
+            }}
+            title="自动整理布局 (Left to Right)"
+          >
+            <LayoutDashboard size={14} style={{ color: '#3b82f6' }} />
+            <span>自动布局</span>
+          </button>
 
           <div style={{ width: '1px', height: '24px', background: '#334155' }} />
 
