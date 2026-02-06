@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, Node, NodeProps } from '@xyflow/react';
-import { Brain, Database, Search, Activity, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Brain, Database, Search, Activity, CheckCircle2, AlertCircle, Loader2, Plus, Trash2 } from 'lucide-react';
 
 export type CortexNodeData = {
   label: string;
@@ -11,6 +11,9 @@ export type CortexNodeData = {
   side?: 'left' | 'right' | 'root';
   level?: number;
   branchColor?: string;
+  onAddChild?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onAIExpand?: (id: string) => void;
 };
 
 export type CortexNodeProps = Node<CortexNodeData>;
@@ -62,7 +65,7 @@ const statusIcons = {
   active: <Activity size={12} color="#10b981" />,
 };
 
-export const CortexNode = memo(function CortexNode({ data, selected }: NodeProps<CortexNodeProps>) {
+export const CortexNode = memo(function CortexNode({ id, data, selected }: NodeProps<CortexNodeProps>) {
   const config = typeConfig[data.type as keyof typeof typeConfig] || typeConfig.logic;
   const Icon = config.icon;
   const StatusIcon = statusIcons[data.status || 'pending'];
@@ -73,24 +76,95 @@ export const CortexNode = memo(function CortexNode({ data, selected }: NodeProps
 
   return (
     <div 
-      className={isActive ? 'node-active' : ''}
+      className={`cortex-node-container ${isActive ? 'node-active' : ''}`}
       style={{
         padding: '12px 16px',
         borderRadius: '12px',
         border: `2px solid ${isActive ? '#ffffff' : branchColor}`,
-        backgroundColor: data.side === 'root' ? '#1e293b' : 'rgba(30, 41, 59, 0.9)', // 根节点深色，子节点半透明
+        backgroundColor: data.side === 'root' ? '#1e293b' : 'rgba(30, 41, 59, 0.9)', 
         boxShadow: isActive ? `0 0 20px ${branchColor}` : config.shadow,
         color: 'white',
         width: '260px', 
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        transition: 'all 0.3s ease',
-        transform: isActive ? 'scale(1.05)' : 'scale(1)',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        transform: isActive ? 'scale(1.02)' : 'scale(1)',
         wordBreak: 'break-word', 
         whiteSpace: 'normal',    
         position: 'relative',
         backdropFilter: 'blur(8px)',
       }}
     >
+      {/* 操作工具栏 */}
+      <div 
+        className="node-toolbar"
+        style={{
+          position: 'absolute',
+          top: '-45px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          gap: '8px',
+          padding: '6px',
+          background: '#1e293b',
+          border: '1px solid #334155',
+          borderRadius: '8px',
+          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
+          opacity: isActive ? 1 : 0,
+          pointerEvents: isActive ? 'auto' : 'none',
+          transition: 'all 0.2s ease',
+          zIndex: 100,
+        }}
+      >
+        <button 
+          onClick={(e) => { e.stopPropagation(); data.onAddChild?.(id); }}
+          title="添加子节点"
+          style={{
+            background: '#334155',
+            border: 'none',
+            borderRadius: '4px',
+            color: 'white',
+            padding: '4px',
+            cursor: 'pointer',
+            display: 'flex',
+            transition: 'background 0.2s'
+          }}
+        >
+          <Plus size={14} />
+        </button>
+        <button 
+          onClick={(e) => { e.stopPropagation(); data.onAIExpand?.(id); }}
+          title="AI 扩展"
+          style={{
+            background: '#334155',
+            border: 'none',
+            borderRadius: '4px',
+            color: '#a78bfa',
+            padding: '4px',
+            cursor: 'pointer',
+            display: 'flex',
+            transition: 'background 0.2s'
+          }}
+        >
+          <Brain size={14} />
+        </button>
+        <div style={{ width: '1px', background: '#334155', margin: '0 2px' }} />
+        <button 
+          onClick={(e) => { e.stopPropagation(); data.onDelete?.(id); }}
+          title="删除节点"
+          style={{
+            background: '#ef444422',
+            border: 'none',
+            borderRadius: '4px',
+            color: '#ef4444',
+            padding: '4px',
+            cursor: 'pointer',
+            display: 'flex',
+            transition: 'background 0.2s'
+          }}
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
       {/* 根节点两侧都有连接点 */}
       {side === 'root' && (
         <>

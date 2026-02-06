@@ -43,7 +43,7 @@ const BRANCH_COLORS = [
   '#84cc16', // lime
 ];
 
-const getLayoutedElements = <T extends Record<string, any>,>(nodes: Node<T>[], edges: Edge[], direction = 'LR'): { nodes: Node<T>[], edges: Edge[] } => {
+const getLayoutedElements = <T extends Record<string, any>,>(nodes: Node<T>[], edges: Edge[]): { nodes: Node<T>[], edges: Edge[] } => {
   const rootNode = nodes.find(n => (n.data as any)?.is_root) || nodes[0];
   if (!rootNode) return { nodes, edges };
 
@@ -218,11 +218,10 @@ function App() {
   const [viewMode, setViewMode] = useState<'live' | 'preview'>('live');
   const [liveState, setLiveState] = useState<{nodes: Node<CortexNodeData>[], edges: Edge[]} | null>(null);
 
-  const onLayout = useCallback((direction = 'LR', currentNodes?: Node<CortexNodeData>[], currentEdges?: Edge[]) => {
+  const onLayout = useCallback((currentNodes?: Node<CortexNodeData>[], currentEdges?: Edge[]) => {
     const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
       currentNodes || nodes,
-      currentEdges || edges,
-      direction
+      currentEdges || edges
     );
 
     setNodes([...layoutedNodes]);
@@ -333,6 +332,266 @@ function App() {
       n.id === nodeId ? { ...n, data: { ...n.data, promptOverride: prompt } } : n
     ));
   }, [setNodes]);
+
+  // --- 节点交互操作 ---
+  
+  // 核心布局更新函数
+  const performLayoutUpdate = useCallback((newNodes: Node<CortexNodeData>[], newEdges: Edge[]) => {
+    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(newNodes, newEdges);
+    setNodes(layoutedNodes);
+    setEdges(layoutedEdges);
+    apiClient.saveState(layoutedNodes, layoutedEdges);
+  }, [setNodes, setEdges]);
+
+  // 1. 手动添加子节点
+  const handleAddChild = useCallback((parentId: string) => {
+    const parentNode = nodes.find(n => n.id === parentId);
+    if (!parentNode) return;
+
+    const id = `manual-${Date.now()}`;
+    const newNode: Node<CortexNodeData> = {
+      id,
+      type: 'cortex',
+      position: { x: parentNode.position.x + 300, y: parentNode.position.y },
+      data: { 
+        label: '新子节点',
+        type: 'logic',
+        status: 'pending',
+        description: '双击编辑内容'
+      },
+    };
+
+    const newEdge: Edge = {
+      id: `e-${parentId}-${id}`,
+      source: parentId,
+      target: id,
+      type: 'mindmap'
+    };
+
+    performLayoutUpdate([...nodes, newNode], [...edges, newEdge]);
+  }, [nodes, edges, performLayoutUpdate]);
+
+  // 2. 删除节点及其子树
+  const handleDeleteNode = useCallback((nodeId: string) => {
+    if (nodeId === 'root') return; // 不允许删除根节点
+
+    const getDescendants = (id: string, allEdges: Edge[]): string[] => {
+      const children = allEdges.filter(e => e.source === id).map(e => e.target);
+      let descendants = [...children];
+      children.forEach(childId => {
+        descendants = [...descendants, ...getDescendants(childId, allEdges)];
+      });
+      return descendants;
+    };
+
+    const toDelete = [nodeId, ...getDescendants(nodeId, edges)];
+    const nextNodes = nodes.filter(n => !toDelete.includes(n.id));
+    const nextEdges = edges.filter(e => !toDelete.includes(e.source) && !toDelete.includes(e.target));
+
+    if (selectedNode?.id === nodeId) setSelectedNode(null);
+    performLayoutUpdate(nextNodes, nextEdges);
+  }, [nodes, edges, selectedNode, performLayoutUpdate]);
+
+  // 3. 触发 AI 扩展特定节点
+  const handleAIReasoning = useCallback(async (nodeId: string) => {
+    const parentNode = nodes.find(n => n.id === nodeId);
+    if (!parentNode) return;
+
+    setIsReasoning(true);
+    // Pass nodeId to generate relevant context only (Pruning)
+    const context = generateAIContext(nodes, edges, nodeId);
+    
+    // Add an initial assistant message for reasoning
+    const assistantId = `assistant-${Date.now()}`;
+    setChatMessages(msgs => msgs.concat({ 
+      id: assistantId, 
+      role: 'assistant', 
+      content: `正在针对节点 "${parentNode.data.label}" 进行深入推理...`,
+      rawContent: ''
+    } as any));
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    try {
+      const timestamp = Date.now();
+      const promptBase = `你是一个高级思维导图助手。请针对特定节点进行深度扩展，并以“节点流式生长”的方式输出。
+
+### 当前思维上下文：
+${context}
+
+### 目标扩展节点：
+"${parentNode.data.label}" (ID: ${nodeId})
+
+### 核心任务：
+1. **深度推理**：先在对话框中输出你对该节点的详细拆解思路（不要包裹在任何标签内）。
+2. **连续生长**：输出多个 <node> 标签来扩展思维分支。
+3. **多维拆解**：请根据目标节点的具体含义，灵活地从多个相关维度进行深度细化（例如原因、方案、风险、具体步骤、预期效果等）。
+
+### 输出协议（极其重要）：
+- 每个节点必须包裹在 <node> 和 </node> 之间。
+- **禁止**在标签内使用 \`\`\`json 或任何 Markdown 格式。
+- 新生长节点的 \`parent_id\` 默认应为 "${nodeId}"。
+- 如果你生长出了二级子节点，请使用一级子节点的 \`label\` 或你预期的 ID 作为 \`parent_id\`。
+
+### 示例序列：
+<node>{"label": "细化分支1", "parent_id": "${nodeId}", "type": "logic", "description": "..."}</node>
+<node>{"label": "具体措施A", "parent_id": "细化分支1", "type": "execution", "description": "..."}</node>
+
+请立即开始：先分析，再连续生长出深度拆解的子树。`;
+
+      const promptOverride = parentNode.data.promptOverride?.trim();
+      const prompt = promptOverride
+        ? `${promptBase}\n\n用户补充指令：\n${promptOverride}\n\n请开始思考：`
+        : `${promptBase}\n\n请开始思考：`;
+
+      let fullResponse = '';
+      let processedTagsCount = 0;
+      const streamNodes: Node<CortexNodeData>[] = [];
+      const streamEdges: Edge[] = [];
+      
+      // 初始化子节点计数，避免新生成的兄弟节点与现有节点重合
+      const parentChildCounts: Record<string, number> = {};
+      edges.forEach(edge => {
+        parentChildCounts[edge.source] = (parentChildCounts[edge.source] || 0) + 1;
+      });
+
+      await ollamaClient.chat(selectedModel, [{ role: 'user', content: prompt }], (chunk) => {
+        fullResponse += chunk;
+        
+        // 实时更新聊天内容
+        setChatMessages(msgs => msgs.map(m => {
+          if (m.id === assistantId) {
+            return { 
+              ...m, 
+              content: fullResponse,
+              rawContent: fullResponse
+            } as any;
+          }
+          return m;
+        }));
+
+        // 尝试解析并提取生长出来的节点
+        const nodeMatches = [...fullResponse.matchAll(/<node>([\s\S]*?)<\/node>/g)];
+        if (nodeMatches.length > processedTagsCount) {
+          for (let i = processedTagsCount; i < nodeMatches.length; i++) {
+            try {
+              const nodeData = parseNodeJSON(nodeMatches[i][1]);
+              const newNodeId = `node-${timestamp}-${i}`;
+              
+              // 增强父节点 ID 解析逻辑
+              let parentId = nodeData.parent_id || nodeId;
+              let currentParentNode: Node<CortexNodeData> | undefined;
+
+              const allCurrentNodes = [...nodes, ...streamNodes];
+              currentParentNode = allCurrentNodes.find(n => n.id === parentId);
+              if (!currentParentNode) {
+                // 尝试按 Label 查找
+                currentParentNode = allCurrentNodes.find(n => n.data.label === parentId || n.data.label.includes(parentId!));
+                if (currentParentNode) parentId = currentParentNode.id;
+                else parentId = nodeId; // 回退到目标节点
+              }
+
+              // 自动判断 side
+              let nodeSide = nodeData.side;
+              if (!nodeSide) {
+                const pNode = allCurrentNodes.find(n => n.id === parentId);
+                if (pNode) {
+                  nodeSide = pNode.data.side === 'root' 
+                    ? (streamNodes.filter(n => (n.data as any).parentId === pNode.id).length % 2 === 0 ? 'right' : 'left')
+                    : pNode.data.side;
+                }
+              }
+
+              const newNode: Node<CortexNodeData> = {
+                id: newNodeId,
+                type: 'cortex',
+                position: { x: 0, y: 0 }, // 布局会自动处理
+                data: {
+                  label: nodeData.label,
+                  type: nodeData.type || 'logic',
+                  status: 'pending',
+                  description: nodeData.description,
+                  side: nodeSide
+                }
+              };
+
+              streamNodes.push(newNode);
+
+              const newEdge: Edge = {
+                id: `edge-${timestamp}-${i}`,
+                source: parentId,
+                target: newNodeId,
+                type: 'mindmap',
+                animated: true,
+                style: { stroke: '#3b82f6', strokeWidth: 3 }
+              };
+              streamEdges.push(newEdge);
+
+              processedTagsCount = nodeMatches.length;
+
+              // 实时触发布局调整
+              setNodes(prevNodes => {
+                setEdges(prevEdges => {
+                  const updatedNodes = [...prevNodes];
+                  streamNodes.forEach(sn => {
+                    if (!updatedNodes.some(un => un.id === sn.id)) updatedNodes.push(sn);
+                  });
+
+                  const updatedEdges = [...prevEdges];
+                  streamEdges.forEach(se => {
+                    if (!updatedEdges.some(ue => ue.id === se.id)) updatedEdges.push(se);
+                  });
+
+                  const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(updatedNodes, updatedEdges);
+                  setTimeout(() => {
+                    setNodes(layoutedNodes);
+                    setEdges(layoutedEdges);
+                  }, 0);
+                  return prevEdges;
+                });
+                return prevNodes;
+              });
+            } catch (e) {
+              console.error("Failed to parse streaming node JSON", e);
+            }
+          }
+        }
+      }, abortController.signal);
+
+      // 生成结束后整理布局并保存
+      setNodes(prevNodes => {
+        setEdges(prevEdges => {
+          const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(prevNodes, prevEdges);
+          setNodes(layoutedNodes);
+          setEdges(layoutedEdges);
+          apiClient.saveState(layoutedNodes, layoutedEdges);
+          return layoutedEdges;
+        });
+        return prevNodes;
+      });
+
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        setChatMessages(msgs => msgs.map(m => 
+          m.id === assistantId ? { ...m, content: m.content + '\n\n(已手动停止生成)' } : m
+        ));
+      } else {
+        console.error('AI Reasoning failed:', error);
+      }
+    } finally {
+      setIsReasoning(false);
+      abortControllerRef.current = null;
+    }
+  }, [nodes, edges, selectedModel, setNodes, setEdges]);
+
+  const handleAIExpand = useCallback((nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (node) {
+      setSelectedNode(node);
+      handleAIReasoning(nodeId);
+    }
+  }, [nodes, handleAIReasoning]);
 
   const handleRestore = useCallback(async (commitId: string) => {
     await apiClient.restoreCommit(commitId);
@@ -705,195 +964,6 @@ ${context}
     }
   }, [chatInput, viewMode, ollamaStatus, getChatSpawnPoint, nodes, edges, selectedModel, setNodes, setEdges]);
 
-  const handleAIReasoning = async (nodeId: string) => {
-    const parentNode = nodes.find(n => n.id === nodeId);
-    if (!parentNode) return;
-
-    setIsReasoning(true);
-    // Pass nodeId to generate relevant context only (Pruning)
-    const context = generateAIContext(nodes, edges, nodeId);
-    
-    // Add an initial assistant message for reasoning
-    const assistantId = `assistant-${Date.now()}`;
-    setChatMessages(msgs => msgs.concat({ 
-      id: assistantId, 
-      role: 'assistant', 
-      content: `正在针对节点 "${parentNode.data.label}" 进行深入推理...`,
-      rawContent: ''
-    } as any));
-
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-
-    try {
-      const timestamp = Date.now();
-      const promptBase = `你是一个高级思维导图助手。请针对特定节点进行深度扩展，并以“节点流式生长”的方式输出。
-
-### 当前思维上下文：
-${context}
-
-### 目标扩展节点：
-"${parentNode.data.label}" (ID: ${nodeId})
-
-### 核心任务：
-1. **深度推理**：先在对话框中输出你对该节点的详细拆解思路（不要包裹在任何标签内）。
-2. **连续生长**：输出多个 <node> 标签来扩展思维分支。
-3. **多维拆解**：请根据目标节点的具体含义，灵活地从多个相关维度进行深度细化（例如原因、方案、风险、具体步骤、预期效果等）。
-
-### 输出协议（极其重要）：
-- 每个节点必须包裹在 <node> 和 </node> 之间。
-- **禁止**在标签内使用 \`\`\`json 或任何 Markdown 格式。
-- 新生长节点的 \`parent_id\` 默认应为 "${nodeId}"。
-- 如果你生长出了二级子节点，请使用一级子节点的 \`label\` 或你预期的 ID 作为 \`parent_id\`。
-
-### 示例序列：
-<node>{"label": "细化分支1", "parent_id": "${nodeId}", "type": "logic", "description": "..."}</node>
-<node>{"label": "具体措施A", "parent_id": "细化分支1", "type": "execution", "description": "..."}</node>
-
-请立即开始：先分析，再连续生长出深度拆解的子树。`;
-
-      const promptOverride = parentNode.data.promptOverride?.trim();
-      const prompt = promptOverride
-        ? `${promptBase}\n\n用户补充指令：\n${promptOverride}\n\n请开始思考：`
-        : `${promptBase}\n\n请开始思考：`;
-
-      let fullResponse = '';
-      let processedTagsCount = 0;
-      const streamNodes: Node<CortexNodeData>[] = [];
-      const streamEdges: Edge[] = [];
-      
-      // 初始化子节点计数，避免新生成的兄弟节点与现有节点重合
-      const parentChildCounts: Record<string, number> = {};
-      edges.forEach(edge => {
-        parentChildCounts[edge.source] = (parentChildCounts[edge.source] || 0) + 1;
-      });
-
-      await ollamaClient.chat(selectedModel, [{ role: 'user', content: prompt }], (chunk) => {
-        fullResponse += chunk;
-        
-        // 实时更新聊天内容
-        setChatMessages(msgs => msgs.map(m => {
-          if (m.id === assistantId) {
-            return { 
-              ...m, 
-              content: fullResponse,
-              rawContent: fullResponse
-            } as any;
-          }
-          return m;
-        }));
-
-        // 尝试解析并提取生长出来的节点
-        const nodeMatches = [...fullResponse.matchAll(/<node>([\s\S]*?)<\/node>/g)];
-        if (nodeMatches.length > processedTagsCount) {
-          for (let i = processedTagsCount; i < nodeMatches.length; i++) {
-            try {
-              const nodeData = parseNodeJSON(nodeMatches[i][1]);
-              const newNodeId = `node-${timestamp}-${i}`;
-              
-              // 增强父节点 ID 解析逻辑
-              let parentId = nodeData.parent_id || nodeId;
-              let parentNodeObj: Node<CortexNodeData> | undefined;
-
-              const allCurrentNodes = [...nodes, ...streamNodes];
-              if (parentId) {
-                parentNodeObj = allCurrentNodes.find(n => n.id === parentId);
-                if (!parentNodeObj) {
-                  // 尝试按 Label 查找
-                  parentNodeObj = allCurrentNodes.find(n => n.data.label === parentId || n.data.label.includes(parentId!));
-                  if (parentNodeObj) parentId = parentNodeObj.id;
-                }
-              }
-
-              // 自动布局逻辑 (LR 方向)
-              let position = { 
-                x: parentNode.position.x + 350, 
-                y: parentNode.position.y + (Math.random() * 200 - 100)
-              };
-
-              if (parentNodeObj) {
-                const childIndex = parentChildCounts[parentNodeObj.id] || 0;
-                parentChildCounts[parentNodeObj.id] = childIndex + 1;
-
-                const isRootChild = parentNodeObj.id === nodeId || (parentNodeObj.data as any).is_root;
-                const isLeft = isRootChild ? (childIndex % 2 !== 0) : (parentNodeObj.position.x < 0);
-                const sideIndex = isRootChild ? Math.floor(childIndex / 2) : childIndex;
-
-                const horizontalSpacing = isLeft ? -380 : 380; 
-                const verticalSpacing = 100;
-                
-                const offsetY = (sideIndex * verticalSpacing) - 60;
-                
-                position = {
-                  x: parentNodeObj.position.x + horizontalSpacing,
-                  y: parentNodeObj.position.y + offsetY
-                };
-              }
-
-              const newNode: Node<CortexNodeData> = { 
-                id: newNodeId,
-                type: 'cortex',
-                position,
-                data: {
-                  label: nodeData.label,
-                  type: nodeData.type || 'logic',
-                  status: 'pending',
-                  description: nodeData.description
-                }
-              };
-
-              streamNodes.push(newNode);
-              setNodes(nds => {
-                if (nds.some(n => n.id === newNodeId)) return nds;
-                return [...nds, newNode];
-              });
-
-              if (parentId) {
-                const newEdge: Edge = {
-                  id: `edge-${timestamp}-${i}`,
-                  source: parentId,
-                  target: newNodeId,
-                  type: 'mindmap', // 使用自定义的思维导图连线
-                  animated: true,
-                  style: { stroke: '#94a3b8', strokeWidth: 3 }
-                };
-                streamEdges.push(newEdge);
-                setEdges(eds => [...eds, newEdge]);
-              }
-
-              // 实时触发布局调整，确保一边生成一边排版
-              onLayout('LR', [...nodes, ...streamNodes], [...edges, ...streamEdges]);
-            } catch (e) {
-              console.error("Failed to parse streaming node JSON in reasoning", e);
-            }
-          }
-          processedTagsCount = nodeMatches.length;
-        }
-      }, abortController.signal);
-
-      // 生成结束后自动整理布局，传入完整的节点和连线列表，避免消失
-      onLayout('LR', [...nodes, ...streamNodes], [...edges, ...streamEdges]);
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        setChatMessages(msgs => msgs.map(m => 
-          m.id === assistantId ? { ...m, content: m.content + '\n\n(已手动停止生成)' } : m
-        ));
-      } else {
-        console.error('Reasoning failed:', error);
-        setChatMessages(msgs => msgs.map(m => 
-          m.id === assistantId ? { ...m, content: '推理失败，请重试。' } : m
-        ));
-      }
-    } finally {
-      setIsReasoning(false);
-      abortControllerRef.current = null;
-    }
-  };
-
-  const handleExpand = (nodeId: string) => {
-    handleAIReasoning(nodeId);
-  };
-
   const handleCommit = async () => {
     setIsCommitting(true);
     
@@ -920,16 +990,27 @@ ${context}
     }, 1000);
   };
 
+  // 为节点注入交互回调
+  const nodesWithCallbacks = useMemo(() => {
+    return nodes.map(node => ({
+      ...node,
+      data: {
+        ...node.data,
+        onAddChild: handleAddChild,
+        onDelete: handleDeleteNode,
+        onAIExpand: handleAIExpand,
+      }
+    }));
+  }, [nodes, handleAddChild, handleDeleteNode, handleAIExpand]);
+
   return (
-    <div style={{ width: '100vw', height: '100vh', background: '#0f172a' }}>
+    <div style={{ width: '100vw', height: '100vh', backgroundColor: '#0f172a' }}>
+      {/* Logo Header */}
       <div style={{ 
         position: 'absolute', 
-        top: 20, 
-        left: 20, 
-        zIndex: 10, 
-        color: 'white',
-        fontFamily: 'Inter, system-ui, sans-serif',
-        pointerEvents: 'none',
+        top: '20px', 
+        left: '20px', 
+        zIndex: 10,
         display: 'flex',
         alignItems: 'center',
         gap: '12px'
@@ -946,7 +1027,7 @@ ${context}
       </div>
 
       <ReactFlow
-        nodes={nodes}
+        nodes={nodesWithCallbacks}
         edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -1010,7 +1091,7 @@ ${context}
           <div style={{ width: '1px', height: '24px', background: '#334155' }} />
 
           <button 
-            onClick={() => onLayout('LR')}
+            onClick={() => onLayout()}
             style={{
               padding: '8px 12px',
               backgroundColor: '#1e293b',
@@ -1355,7 +1436,7 @@ ${context}
           data={selectedNode?.data || null}
           nodeId={selectedNode?.id || null}
           onClose={() => setSelectedNode(null)}
-          onExpand={handleExpand}
+          onExpand={handleAIExpand}
           onUpdatePrompt={handleUpdatePrompt}
         />
       </ReactFlow>
