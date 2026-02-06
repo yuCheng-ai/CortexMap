@@ -15,6 +15,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import './App.css';
 import { CortexNode, CortexNodeData } from './components/nodes/CortexNode';
+import { MindMapEdge } from './components/edges/MindMapEdge';
 import { NodeInspector } from './components/ui/NodeInspector';
 import { TimeTravelSlider } from './components/TimeTravelSlider';
 import { CortexLogo } from './components/ui/CortexLogo';
@@ -31,33 +32,157 @@ dagreGraph.setDefaultEdgeLabel(() => ({}));
 const nodeWidth = 260; // 与 CortexNode.tsx 保持一致
 const nodeHeight = 80; // 调低计算高度，让 Dagre 排布更紧凑
 
+const BRANCH_COLORS = [
+  '#3b82f6', // blue
+  '#10b981', // green
+  '#8b5cf6', // purple
+  '#f59e0b', // amber
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#f43f5e', // rose
+  '#84cc16', // lime
+];
+
 const getLayoutedElements = <T extends Record<string, any>,>(nodes: Node<T>[], edges: Edge[], direction = 'LR'): { nodes: Node<T>[], edges: Edge[] } => {
-  const isHorizontal = direction === 'LR';
-  // 大幅压缩间距：ranksep (层级) 120, nodesep (兄弟) 40
-  dagreGraph.setGraph({ rankdir: direction, ranksep: 120, nodesep: 40 }); 
+  const rootNode = nodes.find(n => (n.data as any)?.is_root) || nodes[0];
+  if (!rootNode) return { nodes, edges };
 
-  nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+  // 1. 将节点分为左侧树和右侧树
+  const rootChildren = edges.filter(e => e.source === rootNode.id).map(e => e.target);
+  
+  // 记录每个节点属于哪个分支、级别和颜色
+  const nodeSideMap: Record<string, 'left' | 'right'> = {};
+  const nodeLevelMap: Record<string, number> = {};
+  const nodeColorMap: Record<string, string> = {};
+  
+  rootChildren.forEach((childId, index) => {
+    // 左右交替分配根节点的直接子节点
+    const side = index % 2 === 0 ? 'right' : 'left';
+    const color = BRANCH_COLORS[index % BRANCH_COLORS.length];
+    
+    nodeSideMap[childId] = side;
+    nodeLevelMap[childId] = 1;
+    nodeColorMap[childId] = color;
+    
+    // 递归标记所有后代节点
+    const queue = [{ id: childId, level: 1 }];
+    while (queue.length > 0) {
+      const { id: currentId, level } = queue.shift()!;
+      const children = edges.filter(e => e.source === currentId).map(e => e.target);
+      children.forEach(cid => {
+        nodeSideMap[cid] = side;
+        nodeLevelMap[cid] = level + 1;
+        nodeColorMap[cid] = color;
+        queue.push({ id: cid, level: level + 1 });
+      });
+    }
   });
 
-  edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target);
-  });
+  // 2. 创建两个独立的图进行布局
+  const layoutSide = (sideNodes: string[]) => {
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: 'LR', ranksep: 120, nodesep: 40 });
+    g.setDefaultEdgeLabel(() => ({}));
+    
+    nodes.filter(n => sideNodes.includes(n.id)).forEach(n => {
+      g.setNode(n.id, { width: nodeWidth, height: nodeHeight });
+    });
+    
+    edges.filter(e => 
+      (sideNodes.includes(e.source) && sideNodes.includes(e.target)) ||
+      (e.source === rootNode.id && sideNodes.includes(e.target))
+    ).forEach(e => {
+      g.setEdge(e.source, e.target);
+    });
+    
+    if (sideNodes.length > 0) {
+      g.setNode(rootNode.id, { width: nodeWidth, height: nodeHeight });
+    }
+    
+    dagre.layout(g);
+    return g;
+  };
 
-  dagre.layout(dagreGraph);
+  const leftNodeIds = Object.keys(nodeSideMap).filter(id => nodeSideMap[id] === 'left');
+  const rightNodeIds = Object.keys(nodeSideMap).filter(id => nodeSideMap[id] === 'right');
 
-  const layoutedNodes = nodes.map((node) => {
-    const nodeWithPosition = dagreGraph.node(node.id);
+  const leftGraph = layoutSide(leftNodeIds);
+  const rightGraph = layoutSide(rightNodeIds);
+  
+  // 3. 合并布局结果，并注入级别和颜色信息
+  const layoutedNodes = nodes.map(node => {
+    if (node.id === rootNode.id) {
+      return { 
+        ...node, 
+        position: { x: -nodeWidth / 2, y: -nodeHeight / 2 },
+        data: { ...node.data, side: 'root' as const, level: 0, branchColor: '#94a3b8' }
+      };
+    }
+    
+    const side = nodeSideMap[node.id];
+    const level = nodeLevelMap[node.id] || 0;
+    const color = nodeColorMap[node.id] || '#94a3b8';
+
+    const g = side === 'left' ? leftGraph : rightGraph;
+    const pos = g.node(node.id);
+    const rootPos = g.node(rootNode.id);
+    
+    if (!pos || !rootPos) return node;
+
+    const relX = pos.x - rootPos.x;
+    const relY = pos.y - rootPos.y;
+
     return {
       ...node,
       position: {
-        x: nodeWithPosition.x - nodeWidth / 2,
-        y: nodeWithPosition.y - nodeHeight / 2,
+        x: side === 'left' ? -relX - nodeWidth / 2 : relX - nodeWidth / 2,
+        y: relY - nodeHeight / 2
       },
+      data: { ...node.data, side, level, branchColor: color }
     };
   });
 
-  return { nodes: layoutedNodes, edges };
+  // 4. 为连线注入样式和正确的连接点
+  const layoutedEdges = edges.map(edge => {
+    // 统一从 nodeSideMap 获取侧向信息，确保逻辑一致性
+    const isSourceRoot = edge.source === rootNode.id;
+    const sourceSide = isSourceRoot ? 'root' : (nodeSideMap[edge.source] || 'right');
+    const targetSide = nodeSideMap[edge.target] || 'right';
+    const sourceLevel = nodeLevelMap[edge.source] || 0;
+    const branchColor = nodeColorMap[edge.target] || '#94a3b8';
+    
+    // 自动选择连接点 ID
+    let sourceHandle = 'right-out';
+    let targetHandle = 'left-in';
+
+    if (sourceSide === 'left') {
+      sourceHandle = 'left-out';
+    } else if (sourceSide === 'root' && targetSide === 'left') {
+      sourceHandle = 'left-out';
+    }
+
+    if (targetSide === 'left') {
+      targetHandle = 'right-in';
+    }
+
+    // 级别越浅，线越粗
+    const strokeWidth = Math.max(1, 4 - sourceLevel);
+    
+    return {
+      ...edge,
+      type: 'mindmap',
+      sourceHandle,
+      targetHandle,
+      style: {
+        ...edge.style,
+        stroke: branchColor,
+        strokeWidth,
+      },
+      animated: false,
+    };
+  });
+
+  return { nodes: layoutedNodes, edges: layoutedEdges };
 };
 
 const initialNodes: Node<CortexNodeData>[] = [];
@@ -176,6 +301,10 @@ function App() {
     cortex: CortexNode,
   }), []);
 
+  const edgeTypes = useMemo(() => ({
+    mindmap: MindMapEdge,
+  }), []);
+
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
     [setEdges]
@@ -256,6 +385,26 @@ function App() {
     try {
       // 1. 清理可能的 Markdown 代码块包裹
       let cleaned = str.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
+      
+      // 如果看起来像 XML 标签而非 JSON，尝试将其转换为简单的 JSON
+      if (cleaned.startsWith('<') && cleaned.includes('>')) {
+        const labelMatch = cleaned.match(/<label>([\s\S]*?)<\/label>/);
+        const descMatch = cleaned.match(/<description>([\s\S]*?)<\/description>/);
+        const parentMatch = cleaned.match(/<parent_id>([\s\S]*?)<\/parent_id>/);
+        const typeMatch = cleaned.match(/<type>([\s\S]*?)<\/type>/);
+        const isRootMatch = cleaned.match(/<is_root>([\s\S]*?)<\/is_root>/);
+
+        if (labelMatch) {
+          return {
+            label: labelMatch[1].trim(),
+            description: descMatch ? descMatch[1].trim() : '',
+            parent_id: parentMatch ? parentMatch[1].trim() : null,
+            type: typeMatch ? typeMatch[1].trim() : 'logic',
+            is_root: isRootMatch ? isRootMatch[1].trim() === 'true' : false
+          };
+        }
+      }
+
       return JSON.parse(cleaned);
     } catch (e) {
       // 2. 如果还是失败，尝试简单的正则提取对象部分 {}
@@ -279,8 +428,13 @@ function App() {
       return;
     }
 
+    // 提前定义 displayContent，避免 ReferenceError
+    const displayContent = selectedNode 
+      ? `针对节点 "${selectedNode.data.label}"：${content}`
+      : content;
+
     setChatInput('');
-    setChatMessages(msgs => msgs.concat({ id: `user-${Date.now()}`, role: 'user', content }));
+    setChatMessages(msgs => msgs.concat({ id: `user-${Date.now()}`, role: 'user', content: displayContent }));
 
     if (ollamaStatus !== 'connected') {
       setChatMessages(msgs => msgs.concat({ id: `system-${Date.now()}`, role: 'system', content: 'Ollama 离线，无法生成节点。' }));
@@ -290,41 +444,63 @@ function App() {
     const spawn = getChatSpawnPoint();
     setIsReasoning(true);
     const assistantId = `assistant-${Date.now()}`;
+    
     setChatMessages(msgs => msgs.concat({ id: assistantId, role: 'assistant', content: '', rawContent: '' } as any));
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
     try {
-      const context = generateAIContext(nodes, edges);
+      // 如果有选中节点，传递给上下文生成函数
+      const context = generateAIContext(nodes, edges, selectedNode?.id);
       const timestamp = Date.now();
       const rootId = `root-${timestamp}`;
-      const promptBase = `你是一个高级思维导图助手。请根据用户的问题进行深度拆解，并以“节点流式生长”的方式输出。
+      
+      const promptBase = selectedNode 
+        ? `你是一个高级思维导图助手。请针对特定节点 "${selectedNode.data.label}" 进行深度扩展。
 
-### 当前思维上下文：
+### 核心规则：
+1. **无限层级生长**：不要局限于一级子节点。请根据逻辑需要，深入拆解出 2-3 层深度的子项。
+2. **多节点连续输出**：一次性输出 5-10 个节点，构建一个局部的小树状结构。
+3. **节点协议**：每个节点必须包裹在 <node> 和 </node> 之间，内部必须是合法的 JSON。
+4. **父子关联**：利用 parent_id 将新生成的节点链接到 "${selectedNode.data.label}" 或你刚生成的其他新节点上。
+
+### 目标扩展节点：
+"${selectedNode.data.label}" (ID: ${selectedNode.id})
+
+### 当前上下文：
+${context}
+
+### 用户指令：
+"${content}"
+
+### 输出格式示例：
+[你的思考过程...]
+
+<node>{"label": "子节点A", "description": "...", "parent_id": "${selectedNode.id}"}</node>
+<node>{"label": "子节点A的子项1", "description": "...", "parent_id": "子节点A"}</node>
+<node>{"label": "子节点A的子项2", "description": "...", "parent_id": "子节点A"}</node>`
+        : `你是一个思维导图专家。请根据用户的问题进行全方位的深度拆解。
+
+### 核心规则：
+1. **深度拆解架构**：不要只输出扁平的一层节点。请构建一个包含根节点、一级分支、二级子项甚至三级细节的完整思维结构（总层级建议 3-4 层）。
+2. **节点规模**：请一次性输出 8-15 个节点，确保逻辑链条完整。
+3. **结构要求**：必须包含一个根节点（is_root: true），以及通过 parent_id 相互关联的层级节点。
+4. **节点协议**：每个节点必须包裹在 <node> 和 </node> 之间，内部必须是合法的 JSON。
+
+### 当前上下文：
 ${context}
 
 ### 用户请求：
 "${content}"
 
-### 核心任务：
-1. **深度推理**：先在对话框中输出你的分析思路（不要包裹在任何标签内）。
-2. **连续生长**：在分析过程中或分析后，连续输出多个 <node> 标签来构建导图。
-3. **完整拆解**：不要只输出一个根节点。请根据用户问题的实际情况，灵活拆解出多个相关的、具有逻辑深度的子节点。
+### 输出格式示例：
+[你的详细深度推理过程...]
 
-### 输出协议（极其重要）：
-- 每个节点必须包裹在 <node> 和 </node> 之间。
-- **禁止**在标签内使用 \`\`\`json 或任何 Markdown 格式。
-- 第一个节点必须是 \`is_root: true\`。
-- 根节点创建后，后续所有直接挂载在它下面的子节点，其 \`parent_id\` 必须固定为 "root_current"。
-- 你可以继续为子节点创建更深层的孙节点，此时 \`parent_id\` 为子节点的 \`label\` 或你预期的 ID。
-
-### 示例序列：
-<node>{"is_root": true, "label": "核心目标", "type": "plan", "description": "..."}</node>
-<node>{"is_root": false, "label": "模块A", "parent_id": "root_current", "type": "logic", "description": "..."}</node>
-<node>{"is_root": false, "label": "子任务1", "parent_id": "模块A", "type": "execution", "description": "..."}</node>
-
-请立即开始：先分析，再连续生长出完整的思维树。`;
+<node>{"is_root": true, "label": "核心主题", "description": "..."}</node>
+<node>{"label": "分支1", "description": "...", "parent_id": "root_current"}</node>
+<node>{"label": "细节1.1", "description": "...", "parent_id": "分支1"}</node>
+<node>{"label": "更深层细节1.1.1", "description": "...", "parent_id": "细节1.1"}</node>`;
 
       let fullResponse = '';
       let processedTagsCount = 0;
@@ -337,7 +513,7 @@ ${context}
         parentChildCounts[edge.source] = (parentChildCounts[edge.source] || 0) + 1;
       });
       
-      await ollamaClient.chat(selectedModel, [{ role: 'user', content: `${promptBase}\n\n请开始思考并生长节点：` }], (chunk) => {
+      await ollamaClient.chat(selectedModel, [{ role: 'user', content: `${promptBase}\n\n请开始深度思考并生长节点：` }], (chunk) => {
         fullResponse += chunk;
         
         // 实时更新聊天内容
@@ -385,12 +561,15 @@ ${context}
                 const childIndex = parentChildCounts[parentNode.id] || 0;
                 parentChildCounts[parentNode.id] = childIndex + 1;
 
-                // 紧凑的垂直分布算法 (适配 LR)
-                const horizontalSpacing = 380; // 节点水平间距 (层级)
-                const verticalSpacing = 100;   // 节点垂直间距 (兄弟)，进一步压缩
+                // 紧凑的垂直分布算法 (适配 LR/RL)
+                const isLeft = (childIndex % 2 !== 0); // 奇数为左侧
+                const sideIndex = Math.floor(childIndex / 2); // 该侧的索引
                 
-                // 简单的从上往下堆叠，初始稍微上移以对齐父节点
-                const offsetY = (childIndex * verticalSpacing) - 60;
+                const horizontalSpacing = isLeft ? -380 : 380; // 左侧为负值
+                const verticalSpacing = 100;   // 节点垂直间距 (兄弟)
+                
+                // 简单的从上往下堆叠
+                const offsetY = (sideIndex * verticalSpacing) - 60;
                 
                 position = {
                   x: parentNode.position.x + horizontalSpacing,
@@ -398,49 +577,117 @@ ${context}
                 };
               }
 
-              const newNode: Node<CortexNodeData> = {
-                id: nodeId,
-                type: 'cortex',
-                position,
-                data: {
-                  label: isRoot ? `🚀 ${nodeData.label}` : nodeData.label,
-                  type: nodeData.type || 'logic',
-                  status: isRoot ? 'completed' : 'pending',
-                  description: nodeData.description
-                }
-              };
-
-              streamNodes.push(newNode);
-              setNodes(nds => {
-                if (nds.some(n => n.id === nodeId)) return nds;
-                return [...nds, newNode];
-              });
-
               if (!isRoot && parentId) {
+                // 自动判断 side
+                let nodeSide = nodeData.side;
+                if (!nodeSide && parentNode) {
+                  nodeSide = parentNode.data.side === 'root' 
+                    ? (streamNodes.filter(n => (n.data as any).parentId === parentNode.id).length % 2 === 0 ? 'right' : 'left')
+                    : parentNode.data.side;
+                }
+
+                const newNode: Node<CortexNodeData> = {
+                  id: nodeId,
+                  type: 'cortex',
+                  position,
+                  data: {
+                    label: isRoot ? `🚀 ${nodeData.label}` : nodeData.label,
+                    type: nodeData.type || 'logic',
+                    status: isRoot ? 'completed' : 'pending',
+                    description: nodeData.description,
+                    side: isRoot ? 'root' : nodeSide
+                  }
+                };
+
+                streamNodes.push(newNode);
+                setNodes(nds => {
+                  if (nds.some(n => n.id === nodeId)) return nds;
+                  return [...nds, newNode];
+                });
+
                 const newEdge: Edge = {
                   id: `edge-${timestamp}-${i}`,
                   source: parentId,
                   target: nodeId,
-                  type: 'smoothstep', // 改为阶梯线，更适合脑图布局
+                  type: 'mindmap', // 使用自定义的思维导图连线
                   animated: true,
-                  style: { stroke: '#3b82f6', strokeWidth: 2 }
+                  style: { stroke: '#3b82f6', strokeWidth: 3 }
                 };
                 streamEdges.push(newEdge);
                 setEdges(eds => [...eds, newEdge]);
+              } else if (isRoot) {
+                // 处理根节点的情况
+                const newNode: Node<CortexNodeData> = {
+                  id: nodeId,
+                  type: 'cortex',
+                  position,
+                  data: {
+                    label: `🚀 ${nodeData.label}`,
+                    type: nodeData.type || 'logic',
+                    status: 'completed',
+                    description: nodeData.description,
+                    side: 'root'
+                  }
+                };
+                streamNodes.push(newNode);
+                setNodes(nds => {
+                  if (nds.some(n => n.id === nodeId)) return nds;
+                  return [...nds, newNode];
+                });
               }
 
-              // 实时触发布局调整，确保一边生成一边排版
-              onLayout('LR', [...nodes, ...streamNodes], [...edges, ...streamEdges]);
+              processedTagsCount = nodeMatches.length;
+              
+              // 关键修复：使用函数式更新，确保拿到最准确的 nodes/edges
+              setNodes(prevNodes => {
+                setEdges(prevEdges => {
+                  const updatedNodes = [...prevNodes];
+                  // 只添加不在 prevNodes 中的新节点
+                  streamNodes.forEach(sn => {
+                    if (!updatedNodes.some(un => un.id === sn.id)) {
+                      updatedNodes.push(sn);
+                    }
+                  });
+
+                  const updatedEdges = [...prevEdges];
+                  // 只添加不在 prevEdges 中的新连线
+                  streamEdges.forEach(se => {
+                    if (!updatedEdges.some(ue => ue.id === se.id)) {
+                      updatedEdges.push(se);
+                    }
+                  });
+
+                  // 实时触发布局调整
+                  const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(updatedNodes, updatedEdges);
+                  
+                  // 异步更新，避免在 setEdges 内部调用 setNodes 导致的竞态
+                  setTimeout(() => {
+                    setNodes(layoutedNodes);
+                    setEdges(layoutedEdges);
+                  }, 0);
+                  
+                  return prevEdges; // 暂时返回原值，由 setTimeout 统一更新
+                });
+                return prevNodes;
+              });
             } catch (e) {
               console.error("Failed to parse streaming node JSON", e);
             }
           }
-          processedTagsCount = nodeMatches.length;
         }
       }, abortController.signal);
       
-      // 生成结束后自动整理布局，传入完整的节点和连线列表，避免消失
-      onLayout('LR', [...nodes, ...streamNodes], [...edges, ...streamEdges]);
+      // 生成结束后自动整理布局
+      setNodes(prevNodes => {
+        setEdges(prevEdges => {
+          const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(prevNodes, prevEdges);
+          setNodes(layoutedNodes);
+          setEdges(layoutedEdges);
+          apiClient.saveState(layoutedNodes, layoutedEdges);
+          return layoutedEdges;
+        });
+        return prevNodes;
+      });
     } catch (error: any) {
       if (error.name === 'AbortError') {
         setChatMessages(msgs => msgs.map(m => 
@@ -449,7 +696,7 @@ ${context}
       } else {
         console.error('Chat reasoning failed:', error);
         setChatMessages(msgs => msgs.map(m => 
-          m.id === assistantId ? { ...m, content: '推理失败，请检查 Ollama 状态或模型配置。' } : m
+          m.id === assistantId ? { ...m, content: `推理失败: ${error.message || '未知错误'}。请检查 Ollama 是否启动或模型 "${selectedModel}" 是否已下载。` } : m
         ));
       }
     } finally {
@@ -568,11 +815,14 @@ ${context}
                 const childIndex = parentChildCounts[parentNodeObj.id] || 0;
                 parentChildCounts[parentNodeObj.id] = childIndex + 1;
 
-                const horizontalSpacing = 380; // 层级间距
-                const verticalSpacing = 100;   // 兄弟间距
+                const isRootChild = parentNodeObj.id === nodeId || (parentNodeObj.data as any).is_root;
+                const isLeft = isRootChild ? (childIndex % 2 !== 0) : (parentNodeObj.position.x < 0);
+                const sideIndex = isRootChild ? Math.floor(childIndex / 2) : childIndex;
+
+                const horizontalSpacing = isLeft ? -380 : 380; 
+                const verticalSpacing = 100;
                 
-                // 简单的从上往下堆叠
-                const offsetY = (childIndex * verticalSpacing) - 60;
+                const offsetY = (sideIndex * verticalSpacing) - 60;
                 
                 position = {
                   x: parentNodeObj.position.x + horizontalSpacing,
@@ -603,9 +853,9 @@ ${context}
                   id: `edge-${timestamp}-${i}`,
                   source: parentId,
                   target: newNodeId,
-                  type: 'smoothstep', // 改为阶梯线
+                  type: 'mindmap', // 使用自定义的思维导图连线
                   animated: true,
-                  style: { stroke: '#94a3b8', strokeWidth: 2 }
+                  style: { stroke: '#94a3b8', strokeWidth: 3 }
                 };
                 streamEdges.push(newEdge);
                 setEdges(eds => [...eds, newEdge]);
@@ -698,11 +948,12 @@ ${context}
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        onNodeClick={onNodeClick}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         fitView
         fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
@@ -918,6 +1169,22 @@ ${context}
                 gap: '12px',
                 scrollBehavior: 'smooth'
               }}>
+                {selectedNode && (
+                  <div style={{
+                    background: 'rgba(59, 130, 246, 0.1)',
+                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    marginBottom: '8px',
+                    fontSize: '12px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#60a5fa', fontWeight: 'bold', marginBottom: '4px' }}>
+                      <Brain size={14} /> 当前选中节点
+                    </div>
+                    <div style={{ color: '#f1f5f9', fontWeight: 600, marginBottom: '2px' }}>{selectedNode.data.label}</div>
+                    <div style={{ color: '#94a3b8', fontSize: '11px' }}>{selectedNode.data.description}</div>
+                  </div>
+                )}
                 {chatMessages.map(message => (
                   <div 
                     key={message.id} 

@@ -61,12 +61,10 @@ body {
 
 /* React Flow Customizations */
 .react-flow__edge-path {
-  stroke: #475569;
-  stroke-width: 2;
+  stroke-linecap: round;
 }
 
 .react-flow__edge.animated .react-flow__edge-path {
-  stroke: #64748b;
   stroke-dasharray: 5;
   animation: dashdraw 1s linear infinite;
 }

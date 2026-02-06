@@ -97,7 +97,8 @@ export const ollamaClient = {
       if (timeoutId) clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`Ollama error: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Ollama error: ${response.statusText} (${response.status})`);
       }
 
       if (onChunk && response.body) {

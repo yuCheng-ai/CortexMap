@@ -8,6 +8,9 @@ export type CortexNodeData = {
   status: 'pending' | 'loading' | 'completed' | 'error' | 'active';
   description?: string;
   promptOverride?: string;
+  side?: 'left' | 'right' | 'root';
+  level?: number;
+  branchColor?: string;
 };
 
 export type CortexNodeProps = Node<CortexNodeData>;
@@ -65,6 +68,8 @@ export const CortexNode = memo(function CortexNode({ data, selected }: NodeProps
   const StatusIcon = statusIcons[data.status || 'pending'];
 
   const isActive = selected || data.status === 'active';
+  const side = data.side || 'right';
+  const branchColor = data.branchColor || config.borderColor;
 
   return (
     <div 
@@ -72,24 +77,55 @@ export const CortexNode = memo(function CortexNode({ data, selected }: NodeProps
       style={{
         padding: '12px 16px',
         borderRadius: '12px',
-        border: `2px solid ${isActive ? '#ffffff' : config.borderColor}`,
-        backgroundColor: config.color,
-        boxShadow: isActive ? `0 0 20px ${config.color}` : config.shadow,
+        border: `2px solid ${isActive ? '#ffffff' : branchColor}`,
+        backgroundColor: data.side === 'root' ? '#1e293b' : 'rgba(30, 41, 59, 0.9)', // 根节点深色，子节点半透明
+        boxShadow: isActive ? `0 0 20px ${branchColor}` : config.shadow,
         color: 'white',
-        width: '260px', // 固定宽度
+        width: '260px', 
         fontFamily: 'system-ui, -apple-system, sans-serif',
         transition: 'all 0.3s ease',
         transform: isActive ? 'scale(1.05)' : 'scale(1)',
-        wordBreak: 'break-word', // 允许换行
-        whiteSpace: 'normal',    // 允许换行
+        wordBreak: 'break-word', 
+        whiteSpace: 'normal',    
+        position: 'relative',
+        backdropFilter: 'blur(8px)',
       }}
     >
-      <Handle type="target" position={Position.Left} style={{ background: 'rgba(255,255,255,0.5)', border: 'none' }} />
-      <Handle type="source" position={Position.Right} style={{ background: 'rgba(255,255,255,0.5)', border: 'none' }} />
+      {/* 根节点两侧都有连接点 */}
+      {side === 'root' && (
+        <>
+          <Handle type="target" position={Position.Left} id="left-in" style={{ background: branchColor, border: 'none', width: '8px', height: '8px' }} />
+          <Handle type="source" position={Position.Right} id="right-out" style={{ background: branchColor, border: 'none', width: '8px', height: '8px' }} />
+          <Handle type="source" position={Position.Left} id="left-out" style={{ background: branchColor, border: 'none', width: '8px', height: '8px' }} />
+        </>
+      )}
+
+      {/* 右侧分支节点：连线从左边入，右边出 */}
+      {side === 'right' && (
+        <>
+          <Handle type="target" position={Position.Left} id="left-in" style={{ background: branchColor, border: 'none', width: '6px', height: '6px' }} />
+          <Handle type="source" position={Position.Right} id="right-out" style={{ background: branchColor, border: 'none', width: '6px', height: '6px' }} />
+        </>
+      )}
+
+      {/* 左侧分支节点：连线从右边入，左边出 */}
+      {side === 'left' && (
+        <>
+          <Handle type="target" position={Position.Right} id="right-in" style={{ background: branchColor, border: 'none', width: '6px', height: '6px' }} />
+          <Handle type="source" position={Position.Left} id="left-out" style={{ background: branchColor, border: 'none', width: '6px', height: '6px' }} />
+        </>
+      )}
       
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-        <Icon size={16} style={{ opacity: 0.9 }} />
-        <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 'bold', opacity: 0.7 }}>
+        <Icon size={16} style={{ color: branchColor }} />
+        <span style={{ 
+          fontSize: '10px', 
+          textTransform: 'uppercase', 
+          letterSpacing: '0.05em', 
+          fontWeight: 'bold', 
+          color: branchColor,
+          opacity: 0.8 
+        }}>
           {data.type}
         </span>
         <div style={{ marginLeft: 'auto' }}>
