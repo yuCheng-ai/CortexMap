@@ -86,6 +86,23 @@ export const generateAIContext = (
   context += `> Active Nodes: ${nodes.length}\n`;
   context += `> Knowledge Connections: ${edges.length}\n\n`;
 
+  // 0. Current Node State (Structural Context)
+  context += `## 🏗️ Current Mind Map Structure\n`;
+  context += `以下是当前已存在的思维导图节点，请在生成新节点时参考它们的 ID 和层级关系：\n\n`;
+  nodes.forEach(node => {
+    const parentEdge = edges.find(e => e.target === node.id);
+    const nodeState = {
+      id: node.id,
+      label: node.data.label,
+      type: node.data.type,
+      parent_id: parentEdge ? parentEdge.source : (node.data.is_root ? null : 'root'),
+      description: node.data.description,
+      is_root: node.data.is_root || false
+    };
+    context += `<node>${JSON.stringify(nodeState)}</node>\n`;
+  });
+  context += `\n`;
+
   // 1. Primary Goals (Plans)
   if (groups.plan.length > 0) {
     context += `## 🎯 Current Objectives (Plans)\n`;

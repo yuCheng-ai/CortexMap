@@ -456,7 +456,17 @@ ${context}
         parentChildCounts[edge.source] = (parentChildCounts[edge.source] || 0) + 1;
       });
 
-      await ollamaClient.chat(selectedModel, [{ role: 'user', content: prompt }], (chunk) => {
+      // 构建包含完整历史记录的对话数组
+      const history = chatMessages
+        .filter(m => m.role !== 'system')
+        .map(m => ({ role: m.role, content: m.content }));
+      
+      const messages = [
+        ...history,
+        { role: 'user', content: prompt }
+      ];
+
+      await ollamaClient.chat(selectedModel, messages as any, (chunk) => {
         fullResponse += chunk;
         
         // 实时更新聊天内容
@@ -512,6 +522,7 @@ ${context}
                   type: nodeData.type || 'logic',
                   status: 'pending',
                   description: nodeData.description,
+                  is_root: false,
                   side: nodeSide
                 }
               };
@@ -583,7 +594,7 @@ ${context}
       setIsReasoning(false);
       abortControllerRef.current = null;
     }
-  }, [nodes, edges, selectedModel, setNodes, setEdges]);
+  }, [nodes, edges, chatMessages, selectedModel, setNodes, setEdges]);
 
   const handleAIExpand = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
@@ -692,8 +703,9 @@ ${context}
       ? `针对节点 "${selectedNode.data.label}"：${content}`
       : content;
 
+    const newUserMsg = { id: `user-${Date.now()}`, role: 'user' as const, content: displayContent };
     setChatInput('');
-    setChatMessages(msgs => msgs.concat({ id: `user-${Date.now()}`, role: 'user', content: displayContent }));
+    setChatMessages(msgs => msgs.concat(newUserMsg));
 
     if (ollamaStatus !== 'connected') {
       setChatMessages(msgs => msgs.concat({ id: `system-${Date.now()}`, role: 'system', content: 'Ollama 离线，无法生成节点。' }));
@@ -772,7 +784,20 @@ ${context}
         parentChildCounts[edge.source] = (parentChildCounts[edge.source] || 0) + 1;
       });
       
-      await ollamaClient.chat(selectedModel, [{ role: 'user', content: `${promptBase}\n\n请开始深度思考并生长节点：` }], (chunk) => {
+      // 构建包含完整历史记录的对话数组
+       const history = [
+         ...chatMessages.filter(m => m.role !== 'system'),
+         newUserMsg
+       ].map(m => ({ role: m.role, content: m.content }));
+       
+       // 在最后一条用户消息中注入当前的思维导图上下文和指令协议
+       // 我们只在最后一条消息中注入 context，因为它是最新的状态
+       const messages = [
+         ...history.slice(0, -1),
+         { role: 'user', content: `${promptBase}\n\n请开始深度思考并生长节点：` }
+       ];
+      
+      await ollamaClient.chat(selectedModel, messages as any, (chunk) => {
         fullResponse += chunk;
         
         // 实时更新聊天内容
@@ -854,6 +879,7 @@ ${context}
                     type: nodeData.type || 'logic',
                     status: isRoot ? 'completed' : 'pending',
                     description: nodeData.description,
+                    is_root: isRoot,
                     side: isRoot ? 'root' : nodeSide
                   }
                 };
@@ -885,6 +911,7 @@ ${context}
                     type: nodeData.type || 'logic',
                     status: 'completed',
                     description: nodeData.description,
+                    is_root: isRoot,
                     side: 'root'
                   }
                 };
@@ -962,7 +989,7 @@ ${context}
       setIsReasoning(false);
       abortControllerRef.current = null;
     }
-  }, [chatInput, viewMode, ollamaStatus, getChatSpawnPoint, nodes, edges, selectedModel, setNodes, setEdges]);
+  }, [chatInput, chatMessages, viewMode, ollamaStatus, getChatSpawnPoint, nodes, edges, selectedModel, setNodes, setEdges, selectedNode]);
 
   const handleCommit = async () => {
     setIsCommitting(true);

@@ -7,6 +7,7 @@ export type CortexNodeData = {
   type: 'logic' | 'memory' | 'evidence' | 'execution' | 'plan' | 'reflection';
   status: 'pending' | 'loading' | 'completed' | 'error' | 'active';
   description?: string;
+  is_root?: boolean;
   promptOverride?: string;
   side?: 'left' | 'right' | 'root';
   level?: number;
